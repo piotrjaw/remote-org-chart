@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiRequestError, createApiClient } from './api/client'
 import type { ApiClient, OrgChartResponse } from './api/types'
 import LoginForm from './components/LoginForm'
+import OrgChart from './components/OrgChart'
 
 const defaultClient = createApiClient()
 
@@ -10,7 +11,12 @@ type AppState =
   | { kind: 'booting' }
   | { kind: 'unauthenticated' }
   | { kind: 'authenticated-loading' }
-  | { kind: 'authenticated-ready'; chart: OrgChartResponse }
+  | {
+      kind: 'authenticated-ready'
+      chart: OrgChartResponse
+      refreshing: boolean
+      refreshError?: unknown
+    }
   | { kind: 'authenticated-error'; error: unknown }
 
 interface AppProps {
@@ -20,14 +26,15 @@ interface AppProps {
 function App({ client = defaultClient }: AppProps) {
   const [state, setState] = useState<AppState>({ kind: 'booting' })
   const [csrfToken, setCsrfToken] = useState('')
+  const operation = useRef(0)
 
   useEffect(() => {
-    let active = true
+    const currentOperation = ++operation.current
 
     async function bootstrap() {
       try {
         const session = await client.session()
-        if (!active) return
+        if (operation.current !== currentOperation) return
 
         setCsrfToken(session.csrf_token)
 
@@ -38,42 +45,112 @@ function App({ client = defaultClient }: AppProps) {
 
         setState({ kind: 'authenticated-loading' })
         const chart = await client.orgChart()
-        if (active) setState({ kind: 'authenticated-ready', chart })
-      } catch (error) {
-        if (!active) return
 
-        setState(
-          isAuthenticationRequired(error)
-            ? { kind: 'unauthenticated' }
-            : { kind: 'authenticated-error', error },
-        )
+        if (operation.current === currentOperation) {
+          setState({
+            kind: 'authenticated-ready',
+            chart,
+            refreshing: false,
+          })
+        }
+      } catch (error) {
+        if (operation.current !== currentOperation) return
+        handleLoadFailure(error)
       }
     }
 
     void bootstrap()
     return () => {
-      active = false
+      if (operation.current === currentOperation) operation.current += 1
     }
   }, [client])
 
+  function handleLoadFailure(error: unknown) {
+    setState(
+      isAuthenticationRequired(error)
+        ? { kind: 'unauthenticated' }
+        : { kind: 'authenticated-error', error },
+    )
+  }
+
   async function login(username: string, password: string) {
+    const currentOperation = ++operation.current
     const session = await client.login(username, password, csrfToken)
+    if (operation.current !== currentOperation) return
+
     setCsrfToken(session.csrf_token)
     setState({ kind: 'authenticated-loading' })
 
     try {
       const chart = await client.orgChart()
-      setState({ kind: 'authenticated-ready', chart })
+      if (operation.current === currentOperation) {
+        setState({
+          kind: 'authenticated-ready',
+          chart,
+          refreshing: false,
+        })
+      }
     } catch (error) {
-      setState(
-        isAuthenticationRequired(error)
-          ? { kind: 'unauthenticated' }
-          : { kind: 'authenticated-error', error },
-      )
+      if (operation.current === currentOperation) handleLoadFailure(error)
+    }
+  }
+
+  async function loadChart() {
+    const currentOperation = ++operation.current
+    setState({ kind: 'authenticated-loading' })
+
+    try {
+      const chart = await client.orgChart()
+      if (operation.current === currentOperation) {
+        setState({
+          kind: 'authenticated-ready',
+          chart,
+          refreshing: false,
+        })
+      }
+    } catch (error) {
+      if (operation.current === currentOperation) handleLoadFailure(error)
+    }
+  }
+
+  async function refreshChart() {
+    if (state.kind !== 'authenticated-ready') return
+
+    const currentChart = state.chart
+    const currentOperation = ++operation.current
+    setState({
+      kind: 'authenticated-ready',
+      chart: currentChart,
+      refreshing: true,
+    })
+
+    try {
+      const chart = await client.refresh(csrfToken)
+      if (operation.current === currentOperation) {
+        setState({
+          kind: 'authenticated-ready',
+          chart,
+          refreshing: false,
+        })
+      }
+    } catch (error) {
+      if (operation.current !== currentOperation) return
+
+      if (isAuthenticationRequired(error)) {
+        setState({ kind: 'unauthenticated' })
+      } else {
+        setState({
+          kind: 'authenticated-ready',
+          chart: currentChart,
+          refreshing: false,
+          refreshError: error,
+        })
+      }
     }
   }
 
   async function logout() {
+    operation.current += 1
     const token = csrfToken
     setState({ kind: 'unauthenticated' })
 
@@ -97,37 +174,25 @@ function App({ client = defaultClient }: AppProps) {
   }
 
   if (state.kind === 'authenticated-error') {
-    const code =
-      state.error instanceof ApiRequestError
-        ? state.error.code
-        : 'internal_error'
-
     return (
-      <main className="app-shell">
-        <h1>Remote org chart</h1>
-        <p role="alert">Unable to load the organization ({code}).</p>
-        <button type="button" onClick={() => window.location.reload()}>
-          Retry
-        </button>
-        <button type="button" className="button-secondary" onClick={logout}>
-          Sign out
-        </button>
-      </main>
+      <ErrorState
+        error={state.error}
+        onRetry={() => void loadChart()}
+        onLogout={() => void logout()}
+      />
     )
   }
 
   return (
-    <main className="app-shell">
-      <header className="app-header">
-        <h1>{state.chart.company.name}</h1>
-        <button type="button" className="button-secondary" onClick={logout}>
-          Sign out
-        </button>
-      </header>
-      <section aria-label="Organization chart">
-        <p>Organization chart ready.</p>
-      </section>
-    </main>
+    <OrgChart
+      chart={state.chart}
+      refreshing={state.refreshing}
+      refreshError={
+        state.refreshError ? errorPresentation(state.refreshError) : undefined
+      }
+      onRefresh={() => void refreshChart()}
+      onLogout={() => void logout()}
+    />
   )
 }
 
@@ -137,6 +202,62 @@ function LoadingState({ message }: { message: string }) {
       <p role="status">{message}</p>
     </main>
   )
+}
+
+function ErrorState({
+  error,
+  onRetry,
+  onLogout,
+}: {
+  error: unknown
+  onRetry(): void
+  onLogout(): void
+}) {
+  const presentation = errorPresentation(error)
+
+  return (
+    <main className="error-page">
+      <section className="error-panel">
+        <h1>Remote org chart</h1>
+        <div role="alert">
+          <p>{presentation.message}</p>
+          {presentation.requestId && (
+            <p className="request-id">Request ID: {presentation.requestId}</p>
+          )}
+        </div>
+        <div className="error-actions">
+          <button type="button" onClick={onRetry}>
+            Retry
+          </button>
+          <button type="button" className="button-secondary" onClick={onLogout}>
+            Sign out
+          </button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function errorPresentation(error: unknown) {
+  const code = error instanceof ApiRequestError ? error.code : 'internal_error'
+  const requestId =
+    error instanceof ApiRequestError ? error.requestId : undefined
+
+  const messages: Record<string, string> = {
+    remote_temporarily_unavailable:
+      'Remote is temporarily unavailable. Try again.',
+    invalid_remote_response:
+      'Remote returned data this app could not understand.',
+    remote_authentication_failed:
+      'Remote API authentication failed. Check the server configuration.',
+    internal_error: 'Something went wrong while loading the organization.',
+  }
+
+  return {
+    message:
+      messages[code] ?? 'Something went wrong while loading the organization.',
+    requestId,
+  }
 }
 
 function isAuthenticationRequired(error: unknown) {

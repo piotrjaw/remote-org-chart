@@ -88,6 +88,143 @@ describe('App session flow', () => {
 
     expect(screen.getByLabelText('Username')).toBeInTheDocument()
   })
+
+  it('keeps the current chart visible and disables only refresh while updating', async () => {
+    const user = userEvent.setup()
+    const refreshRequest = deferred<OrgChartResponse>()
+    const session = vi.fn().mockResolvedValue({
+      authenticated: true,
+      csrf_token: 'authenticated-csrf',
+    })
+    render(
+      <App
+        client={stubClient({
+          session,
+          orgChart: vi.fn().mockResolvedValue(chart('Current Company')),
+          refresh: vi.fn(() => refreshRequest.promise),
+        })}
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Refresh data' }),
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Current Company' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeEnabled()
+  })
+
+  it('replaces the chart after refresh using the current CSRF token', async () => {
+    const user = userEvent.setup()
+    const refresh = vi.fn().mockResolvedValue(chart('Refreshed Company'))
+    const session = vi.fn().mockResolvedValue({
+      authenticated: true,
+      csrf_token: 'authenticated-csrf',
+    })
+    render(<App client={stubClient({ session, refresh })} />)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Refresh data' }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'Refreshed Company' }),
+    ).toBeInTheDocument()
+    expect(refresh).toHaveBeenCalledWith('authenticated-csrf')
+  })
+
+  it('offers a working retry when Remote is temporarily unavailable', async () => {
+    const user = userEvent.setup()
+    const orgChart = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiRequestError(503, {
+          code: 'remote_temporarily_unavailable',
+        }),
+      )
+      .mockResolvedValueOnce(chart('Recovered Company'))
+    const session = vi.fn().mockResolvedValue({
+      authenticated: true,
+      csrf_token: 'authenticated-csrf',
+    })
+    render(<App client={stubClient({ session, orgChart })} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Remote is temporarily unavailable. Try again.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(
+      await screen.findByRole('heading', { name: 'Recovered Company' }),
+    ).toBeInTheDocument()
+  })
+
+  it.each([
+    [
+      'invalid_remote_response',
+      'Remote returned data this app could not understand.',
+    ],
+    [
+      'remote_authentication_failed',
+      'Remote API authentication failed. Check the server configuration.',
+    ],
+  ])('shows a safe tailored message for %s', async (code, message) => {
+    const session = vi.fn().mockResolvedValue({
+      authenticated: true,
+      csrf_token: 'authenticated-csrf',
+    })
+    const orgChart = vi
+      .fn()
+      .mockRejectedValue(new ApiRequestError(502, { code }))
+    render(<App client={stubClient({ session, orgChart })} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+  })
+
+  it('shows the request ID for an unexpected failure', async () => {
+    const session = vi.fn().mockResolvedValue({
+      authenticated: true,
+      csrf_token: 'authenticated-csrf',
+    })
+    const orgChart = vi.fn().mockRejectedValue(
+      new ApiRequestError(500, {
+        code: 'internal_error',
+        request_id: 'request-456',
+      }),
+    )
+    render(<App client={stubClient({ session, orgChart })} />)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(
+      'Something went wrong while loading the organization.',
+    )
+    expect(alert).toHaveTextContent('Request ID: request-456')
+  })
+
+  it('clears the chart when refresh reports a missing session', async () => {
+    const user = userEvent.setup()
+    const session = vi.fn().mockResolvedValue({
+      authenticated: true,
+      csrf_token: 'authenticated-csrf',
+    })
+    const refresh = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiRequestError(401, { code: 'authentication_required' }),
+      )
+    render(<App client={stubClient({ session, refresh })} />)
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Refresh data' }),
+    )
+
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Acme' }),
+    ).not.toBeInTheDocument()
+  })
 })
 
 function stubClient(overrides: Partial<ApiClient> = {}): ApiClient {
