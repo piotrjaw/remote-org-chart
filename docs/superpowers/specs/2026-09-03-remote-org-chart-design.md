@@ -77,6 +77,7 @@ Required in production:
 - `APP_USERNAME`
 - `APP_PASSWORD`
 - `REMOTE_API_TOKEN`
+- `REMOTE_DATA_SOURCE=api`
 
 Optional:
 
@@ -84,11 +85,10 @@ Optional:
 - `REMOTE_API_BASE_URL`, defaulting to
   `https://gateway.remote-sandbox.com`
 - `REMOTE_CACHE_TTL_SECONDS`, defaulting to `300`
-- `REMOTE_DATA_SOURCE`, either `api` or `fixture`
 
-Production requires `REMOTE_DATA_SOURCE=api`. Development may explicitly use
-`fixture`; it does not silently fall back to fixtures when an API token is bad
-or missing. Tests always inject controlled clients and configuration.
+Development sets `REMOTE_DATA_SOURCE` explicitly to either `api` or `fixture`.
+It does not silently fall back to fixtures when an API token is bad or missing.
+Tests always inject controlled clients and configuration.
 
 An `.env.example` documents names and safe placeholder values. Real secrets are
 ignored by Git and are never printed by setup scripts.
@@ -125,9 +125,13 @@ call this out as a production hardening step.
 
 ## Remote integration
 
-`RemoteOrgChart.Remote.Client` exposes one operation that returns a normalized
-company snapshot. It uses `Req` with a bearer token, finite timeouts, and JSON
-decoding.
+`RemoteOrgChart.Remote` is the public data-source boundary. It invokes the
+configured provider and passes that provider's Remote-shaped result through
+`RemoteOrgChart.Remote.Mapper`, a pure projection into the normalized company
+and person structs.
+
+`RemoteOrgChart.Remote.Client` is the HTTP provider. It uses `Req` with a
+bearer token, finite timeouts, and JSON decoding.
 
 The HTTP implementation performs:
 
@@ -148,16 +152,17 @@ needs only a small subset. The client immediately retains only:
 - `full_name`
 - `job_title`
 - `department` and `department_id`
-- `manager`, `manager_email`, and `manager_employment_id`
+- `manager` and `manager_employment_id`
 - `status`, `type`, and `employment_model`
-- `work_email`
 
-Raw responses, tokens, names, and email addresses are not logged. Operational
-logs may include request duration, page count, record count, response class,
-cache status, and warning count.
+Manager and work emails are discarded because the application does not need to
+display them. Raw responses, tokens, names, and email addresses are not logged.
+Operational logs may include request duration, page count, record count,
+response class, cache status, and warning count.
 
 `RemoteOrgChart.Remote.FixtureClient` implements the same operation by reading
-the committed cursor-page fixtures. It is for explicit local development and
+the committed cursor-page fixtures. Fixture and HTTP results therefore exercise
+the same mapper. The fixture provider is for explicit local development and
 tests only.
 
 ## Normalized model and hierarchy
@@ -167,10 +172,10 @@ company and person structs. Optional strings are trimmed. Blank names become
 `Unknown employee`; missing IDs cause a record to be skipped with a warning.
 Unknown extra Remote fields are ignored.
 
-Each normalized person carries a manager summary containing the employment ID,
-name, and email when available. The hierarchy uses the manager employment ID as
-the authoritative relationship. A manager name may still be shown when no
-Remote employment ID exists.
+Each normalized person carries a manager summary containing the employment ID
+and name when available. The hierarchy uses the manager employment ID as the
+authoritative relationship. A manager name may still be shown when no Remote
+employment ID exists.
 
 `RemoteOrgChart.Hierarchy.build/1` constructs a deterministic forest:
 
