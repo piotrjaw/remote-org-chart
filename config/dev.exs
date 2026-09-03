@@ -1,5 +1,9 @@
 import Config
 
+config :remote_org_chart,
+  remote_source: RemoteOrgChart.Remote.FixtureClient,
+  remote_fixture_directory: Path.expand("../fixtures/remote", __DIR__)
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
 #

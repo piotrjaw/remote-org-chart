@@ -1,5 +1,9 @@
 import Config
 
+config :remote_org_chart,
+  remote_source: RemoteOrgChart.Remote.FixtureClient,
+  remote_fixture_directory: Path.expand("../fixtures/remote", __DIR__)
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :remote_org_chart, RemoteOrgChartWeb.Endpoint,

@@ -3,6 +3,8 @@ defmodule RemoteOrgChart.Fixture do
 
   @fixture_directory Path.expand("../../fixtures/remote", __DIR__)
 
+  def directory, do: @fixture_directory
+
   def read_json!(filename) do
     @fixture_directory
     |> Path.join(filename)

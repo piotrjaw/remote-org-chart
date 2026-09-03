@@ -20,6 +20,33 @@ if System.get_env("PHX_SERVER") do
   config :remote_org_chart, RemoteOrgChartWeb.Endpoint, server: true
 end
 
+config :remote_org_chart,
+  remote_api_base_url: System.get_env("REMOTE_API_BASE_URL", "https://gateway.remote-sandbox.com")
+
+if config_env() != :test do
+  case System.get_env("REMOTE_DATA_SOURCE") do
+    nil ->
+      :ok
+
+    "fixture" ->
+      config :remote_org_chart, remote_source: RemoteOrgChart.Remote.FixtureClient
+
+    "api" ->
+      token =
+        case System.get_env("REMOTE_API_TOKEN") do
+          value when is_binary(value) and value != "" -> value
+          _missing -> raise "environment variable REMOTE_API_TOKEN is missing or blank"
+        end
+
+      config :remote_org_chart,
+        remote_source: RemoteOrgChart.Remote.Client,
+        remote_api_token: token
+
+    invalid ->
+      raise "REMOTE_DATA_SOURCE must be either api or fixture, got: #{inspect(invalid)}"
+  end
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
