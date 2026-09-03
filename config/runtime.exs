@@ -34,6 +34,26 @@ if cache_ttl = System.get_env("REMOTE_CACHE_TTL_SECONDS") do
 end
 
 if config_env() != :test do
+  required_credential = fn variable ->
+    case System.get_env(variable) do
+      value when is_binary(value) ->
+        if String.trim(value) == "" do
+          raise "environment variable #{variable} is missing or blank"
+        else
+          value
+        end
+
+      _missing ->
+        raise "environment variable #{variable} is missing or blank"
+    end
+  end
+
+  config :remote_org_chart,
+    app_credentials: %{
+      username: required_credential.("APP_USERNAME"),
+      password: required_credential.("APP_PASSWORD")
+    }
+
   case System.get_env("REMOTE_DATA_SOURCE") do
     nil ->
       :ok

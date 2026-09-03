@@ -1,14 +1,15 @@
 defmodule RemoteOrgChartWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :remote_org_chart
 
-  # The session will be stored in the cookie and signed,
-  # this means its contents can be read but not tampered with.
-  # Set :encryption_salt if you would also like to encrypt it.
+  # The reviewer session is stored in an encrypted and signed cookie.
   @session_options [
     store: :cookie,
     key: "_remote_org_chart_key",
     signing_salt: "CY3th7z0",
-    same_site: "Lax"
+    encryption_salt: "7Yti2cGC",
+    same_site: "Lax",
+    http_only: true,
+    secure: Application.compile_env(:remote_org_chart, :secure_cookies, false)
   ]
 
   # socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]

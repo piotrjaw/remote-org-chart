@@ -7,7 +7,10 @@
 # General application configuration
 import Config
 
-config :remote_org_chart, remote_cache_ttl_ms: 300_000
+config :remote_org_chart,
+  remote_cache_ttl_ms: 300_000,
+  auth_provider: RemoteOrgChart.Auth.EnvironmentProvider,
+  secure_cookies: false
 
 # Configures the endpoint
 config :remote_org_chart, RemoteOrgChartWeb.Endpoint,
