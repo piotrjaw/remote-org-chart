@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: remote-org-chart
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeployTrigger: off
+    envVars:
+      - key: SECRET_KEY_BASE
+        sync: false
+      - key: PHX_HOST
+        sync: false
+      - key: APP_USERNAME
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: REMOTE_API_TOKEN
+        sync: false
+      - key: REMOTE_DATA_SOURCE
+        value: api
+      - key: REMOTE_API_BASE_URL
+        value: https://gateway.remote-sandbox.com
+      - key: REMOTE_CACHE_TTL_SECONDS
+        value: "300"

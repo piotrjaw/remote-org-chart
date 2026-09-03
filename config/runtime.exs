@@ -1,139 +1,53 @@
 import Config
 
-# config/runtime.exs is executed for all environments, including
-# during releases. It is executed after compilation and before the
-# system starts, so it is typically used to load production configuration
-# and secrets from environment variables or elsewhere. Do not define
-# any compile-time configuration in here, as it won't be applied.
-# The block below contains prod specific runtime configuration.
-
-# ## Using releases
-#
-# If you use `mix release`, you need to explicitly enable the server
-# by passing the PHX_SERVER=true when you start it:
-#
-#     PHX_SERVER=true bin/remote_org_chart start
-#
-# Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
-# script that automatically sets the env var above.
-if System.get_env("PHX_SERVER") do
-  config :remote_org_chart, RemoteOrgChartWeb.Endpoint, server: true
-end
-
-config :remote_org_chart,
-  remote_api_base_url: System.get_env("REMOTE_API_BASE_URL", "https://gateway.remote-sandbox.com")
-
-if cache_ttl = System.get_env("REMOTE_CACHE_TTL_SECONDS") do
-  cache_ttl_ms =
-    case Integer.parse(cache_ttl) do
-      {seconds, ""} when seconds >= 0 -> seconds * 1_000
-      _invalid -> raise "REMOTE_CACHE_TTL_SECONDS must be a non-negative integer"
-    end
-
-  config :remote_org_chart, remote_cache_ttl_ms: cache_ttl_ms
-end
-
-if config_env() != :test do
-  required_credential = fn variable ->
-    case System.get_env(variable) do
-      value when is_binary(value) ->
-        if String.trim(value) == "" do
-          raise "environment variable #{variable} is missing or blank"
-        else
-          value
-        end
-
-      _missing ->
-        raise "environment variable #{variable} is missing or blank"
-    end
-  end
-
-  config :remote_org_chart,
-    app_credentials: %{
-      username: required_credential.("APP_USERNAME"),
-      password: required_credential.("APP_PASSWORD")
-    }
-
-  case System.get_env("REMOTE_DATA_SOURCE") do
-    nil ->
-      :ok
-
-    "fixture" ->
-      config :remote_org_chart, remote_source: RemoteOrgChart.Remote.FixtureClient
-
-    "api" ->
-      token =
-        case System.get_env("REMOTE_API_TOKEN") do
-          value when is_binary(value) and value != "" -> value
-          _missing -> raise "environment variable REMOTE_API_TOKEN is missing or blank"
-        end
-
-      config :remote_org_chart,
-        remote_source: RemoteOrgChart.Remote.Client,
-        remote_api_token: token
-
-    invalid ->
-      raise "REMOTE_DATA_SOURCE must be either api or fixture, got: #{inspect(invalid)}"
-  end
-end
+alias RemoteOrgChart.RuntimeConfig
 
 if config_env() == :prod do
-  # The secret key base is used to sign/encrypt cookies and other secrets.
-  # A default value is used in config/dev.exs and config/test.exs but you
-  # want to use a different value for prod and you most likely don't want
-  # to check this value into version control, so we use an environment
-  # variable instead.
-  secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
+  runtime = RuntimeConfig.production!(&System.fetch_env!/1, &System.get_env/1)
 
-  host = System.get_env("PHX_HOST") || "example.com"
-  port = String.to_integer(System.get_env("PORT") || "4000")
+  config :remote_org_chart,
+    app_credentials: runtime.app_credentials,
+    remote_source: RemoteOrgChart.Remote.Client,
+    remote_api_token: runtime.remote_api_token,
+    remote_api_base_url: runtime.remote_api_base_url,
+    remote_cache_ttl_ms: runtime.remote_cache_ttl_ms
 
   config :remote_org_chart, RemoteOrgChartWeb.Endpoint,
-    url: [host: host, port: 443, scheme: "https"],
+    server: true,
+    url: [host: runtime.host, port: 443, scheme: "https"],
     http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://hexdocs.pm/plug_cowboy/Plug.Cowboy.html
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0},
-      port: port
+      port: runtime.port
     ],
-    secret_key_base: secret_key_base
+    secret_key_base: runtime.secret_key_base
+else
+  config :remote_org_chart,
+    remote_api_base_url:
+      System.get_env("REMOTE_API_BASE_URL", "https://gateway.remote-sandbox.com"),
+    remote_cache_ttl_ms:
+      System.get_env("REMOTE_CACHE_TTL_SECONDS") |> RuntimeConfig.cache_ttl_ms()
 
-  # ## SSL Support
-  #
-  # To get SSL working, you will need to add the `https` key
-  # to your endpoint configuration:
-  #
-  #     config :remote_org_chart, RemoteOrgChartWeb.Endpoint,
-  #       https: [
-  #         ...,
-  #         port: 443,
-  #         cipher_suite: :strong,
-  #         keyfile: System.get_env("SOME_APP_SSL_KEY_PATH"),
-  #         certfile: System.get_env("SOME_APP_SSL_CERT_PATH")
-  #       ]
-  #
-  # The `cipher_suite` is set to `:strong` to support only the
-  # latest and more secure SSL ciphers. This means old browsers
-  # and clients may not be supported. You can set it to
-  # `:compatible` for wider support.
-  #
-  # `:keyfile` and `:certfile` expect an absolute path to the key
-  # and cert in disk or a relative path inside priv, for example
-  # "priv/ssl/server.key". For all supported SSL configuration
-  # options, see https://hexdocs.pm/plug/Plug.SSL.html#configure/1
-  #
-  # We also recommend setting `force_ssl` in your endpoint, ensuring
-  # no data is ever sent via http, always redirecting to https:
-  #
-  #     config :remote_org_chart, RemoteOrgChartWeb.Endpoint,
-  #       force_ssl: [hsts: true]
-  #
-  # Check `Plug.SSL` for all available options in `force_ssl`.
+  if config_env() != :test do
+    config :remote_org_chart,
+      app_credentials: %{
+        username: RuntimeConfig.required!(&System.fetch_env!/1, "APP_USERNAME") |> String.trim(),
+        password: RuntimeConfig.required!(&System.fetch_env!/1, "APP_PASSWORD")
+      }
+
+    case System.get_env("REMOTE_DATA_SOURCE") do
+      nil ->
+        :ok
+
+      "fixture" ->
+        config :remote_org_chart, remote_source: RemoteOrgChart.Remote.FixtureClient
+
+      "api" ->
+        config :remote_org_chart,
+          remote_source: RemoteOrgChart.Remote.Client,
+          remote_api_token: RuntimeConfig.required!(&System.fetch_env!/1, "REMOTE_API_TOKEN")
+
+      _invalid ->
+        raise "REMOTE_DATA_SOURCE must be either api or fixture"
+    end
+  end
 end

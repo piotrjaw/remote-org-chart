@@ -1,18 +1,271 @@
-# RemoteOrgChart
+# Remote organization chart
 
-To start your Phoenix server:
+A small take-home application that reads company and employment data from Remote,
+recovers a safe manager-to-report hierarchy, and presents it behind a custom reviewer
+login. Phoenix owns authentication, Remote access, normalization, caching, and the JSON
+API. A React/TypeScript SPA owns the login and semantic tree UI. There is no database.
 
-  * Run `mix setup` to install and setup dependencies
-  * Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
+The production artifact is one Dockerized Phoenix release. It serves both `/api/*` and
+the compiled SPA from the same origin, so the Remote token never enters the browser and
+no CORS setup is needed.
 
-Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
+## Architecture
 
-Ready to run in production? Please [check our deployment guides](https://hexdocs.pm/phoenix/deployment.html).
+```text
+Browser (React SPA)
+  │ encrypted cookie + CSRF
+  ▼
+Phoenix controllers ── RemoteCache (one normalized snapshot)
+  │                         │
+  │                     Remote + Hierarchy
+  │                         │
+  └── environment auth      ├── FixtureClient (local/test)
+                            └── Client (Remote sandbox API)
+```
 
-## Learn more
+Important boundaries:
 
-  * Official website: https://www.phoenixframework.org/
-  * Guides: https://hexdocs.pm/phoenix/overview.html
-  * Docs: https://hexdocs.pm/phoenix
-  * Forum: https://elixirforum.com/c/phoenix-forum
-  * Source: https://github.com/phoenixframework/phoenix
+- `RemoteOrgChart.Auth` looks like an authentication service to the web layer. Its
+  current provider compares credentials configured from `APP_USERNAME` and
+  `APP_PASSWORD`; it does not persist users.
+- `RemoteOrgChart.Remote.Mapper` is the privacy boundary. Full Remote records are
+  projected immediately into a small internal model.
+- `RemoteOrgChart.Hierarchy` is pure and repairs malformed manager graphs
+  deterministically.
+- `RemoteOrgChart.RemoteCache` stores only the normalized chart in memory.
+- Controllers adapt these services to HTTP; they do not acquire or reshape Remote data.
+
+## Prerequisites
+
+- Elixir 1.18+ and Erlang/OTP 27+
+- Node.js 22+ and npm 10+
+- Docker for the production-image smoke test
+
+Install dependencies:
+
+```bash
+mix setup
+```
+
+## Run locally with synthetic fixtures
+
+The committed fixtures contain 30 synthetic people over three cursor pages, including
+late-page managers and malformed relationship examples. They use only reserved
+`.example.test` email addresses.
+
+Start Phoenix in one terminal:
+
+```bash
+APP_USERNAME=reviewer \
+APP_PASSWORD=local-review-password \
+REMOTE_DATA_SOURCE=fixture \
+mix phx.server
+```
+
+Start Vite in a second terminal:
+
+```bash
+npm run dev --prefix assets
+```
+
+Open <http://127.0.0.1:5173> and sign in with the values you assigned above. Vite
+proxies `/api` to Phoenix on port 4000.
+
+## Run locally against Remote
+
+Use the Remote API token from the sandbox credentials. This mode never falls back to
+fixtures if the token or upstream request fails.
+
+```bash
+APP_USERNAME=reviewer \
+APP_PASSWORD=local-review-password \
+REMOTE_DATA_SOURCE=api \
+REMOTE_API_TOKEN=replace-with-your-sandbox-token \
+mix phx.server
+```
+
+Run Vite as shown above. Do not put live values in `.env.example` or commit a local
+`.env` file.
+
+## Test and build
+
+```bash
+mix format --check-formatted
+mix test
+npm test --prefix assets
+npm run lint --prefix assets
+npm run build --prefix assets
+MIX_ENV=prod mix assets.deploy
+MIX_ENV=prod mix release --overwrite
+```
+
+`mix assets.deploy` uses `npm ci`, builds Vite into `priv/static`, and creates compressed
+Phoenix digests. Generated assets and release directories are ignored by Git.
+
+## Configuration
+
+| Variable | Development | Production | Default / purpose |
+| --- | --- | --- | --- |
+| `APP_USERNAME` | required | required | Reviewer login username |
+| `APP_PASSWORD` | required | required | Reviewer login password |
+| `REMOTE_DATA_SOURCE` | `fixture` or `api` | must be `api` | Explicit data provider |
+| `REMOTE_API_TOKEN` | required in API mode | required | Server-only Remote bearer token |
+| `REMOTE_API_BASE_URL` | optional | optional | `https://gateway.remote-sandbox.com` |
+| `REMOTE_CACHE_TTL_SECONDS` | optional | optional | `300`; non-negative integer |
+| `SECRET_KEY_BASE` | from `dev.exs` | required, at least 64 bytes | Encrypts/signs cookies |
+| `PHX_HOST` | not used | required | Public hostname without scheme |
+| `PORT` | optional | supplied by Render | `4000` |
+
+Generate a production cookie secret with `mix phx.gen.secret`. Startup errors name a
+missing variable but never include its value.
+
+## Authentication behavior
+
+`GET /api/session` initializes the encrypted, signed, HTTP-only, SameSite=Lax cookie and
+returns a CSRF token. Login renews the session and CSRF token; logout drops it. The SPA
+keeps the token only in React state—there is no `localStorage` credential or user table.
+
+Rotate reviewer access by changing `APP_USERNAME` and/or `APP_PASSWORD` in Render and
+redeploying. Existing cookies contain only an authenticated boolean, so rotate
+`SECRET_KEY_BASE` too when existing reviewer sessions must be invalidated immediately.
+Production cookies are Secure and therefore require HTTPS.
+
+Login rate limiting is intentionally outside this take-home scope. Add an edge or
+server-side limiter before using this credential model for a higher-risk public system.
+
+## Cache and refresh policy
+
+- The first chart request fetches every Remote cursor page and atomically stores one
+  normalized hierarchy.
+- Requests within `REMOTE_CACHE_TTL_SECONDS` use that snapshot.
+- The Refresh button bypasses freshness and replaces the snapshot only after a complete
+  successful fetch.
+- Concurrent calls are serialized by the GenServer, preventing duplicate upstream
+  refreshes on one instance.
+- Timeouts, rate limits, and Remote `5xx` errors may return an existing snapshot marked
+  stale. Authentication and invalid-schema errors never use stale data.
+- Browser responses are always `Cache-Control: no-store`.
+
+The cache disappears on restart and is not shared across instances. Keep the Render
+service at one instance for this version; use a distributed cache or coordinated fetch
+process before scaling horizontally.
+
+## Hierarchy assumptions and edge cases
+
+`manager_employment_id` is authoritative. Manager names are display-only. The mapper
+keeps all employment statuses and models rather than silently filtering them.
+
+The hierarchy always terminates and keeps every valid unique employment visible:
+
+- `missing_id`: omit the unusable record;
+- `missing_name`: show `Unknown employee`;
+- `duplicate_id`: keep the first record;
+- `self_manager`: move the employee to the top level;
+- `external_manager`: top-level employee whose named manager is outside the response;
+- `unresolved_manager`: top-level employee whose manager ID is absent;
+- `cycle_detected`: break one deterministic edge in the cycle.
+
+Roots and direct reports are sorted case-insensitively by name and then employment ID.
+A manager may appear on a later API page without affecting relationship resolution.
+
+## Privacy and operational errors
+
+The browser receives only company ID/name and these employment fields: ID, name, title,
+department, manager summary, status, employment type/model, and nested reports. Work
+emails, manager emails, unknown Remote fields, raw response bodies, and bearer tokens
+are discarded or remain server-only.
+
+Logs may contain counts, timings, response classes, cache status, warning counts, and
+request IDs. They must not contain tokens, raw Remote bodies, names, or email addresses.
+Unexpected API failures return an opaque code plus a request ID for correlation.
+
+## Docker smoke test
+
+Build the same artifact Render will run:
+
+```bash
+docker build -t remote-org-chart:local .
+```
+
+For an end-to-end API-mode check without live credentials, first start the synthetic
+Remote server:
+
+```bash
+APP_USERNAME=reviewer \
+APP_PASSWORD=fixture-server-only \
+REMOTE_DATA_SOURCE=fixture \
+MIX_ENV=dev mix run scripts/remote_fixture_server.exs
+```
+
+In another terminal, generate a disposable secret and run the image:
+
+```bash
+export REMOTE_ORG_CHART_SMOKE_SECRET="$(mix phx.gen.secret)"
+
+docker run --rm \
+  -p 4000:4000 \
+  -e SECRET_KEY_BASE="$REMOTE_ORG_CHART_SMOKE_SECRET" \
+  -e PHX_HOST=localhost \
+  -e APP_USERNAME=reviewer \
+  -e APP_PASSWORD=local-smoke-password \
+  -e REMOTE_DATA_SOURCE=api \
+  -e REMOTE_API_TOKEN=non-secret-smoke-token \
+  -e REMOTE_API_BASE_URL=http://host.docker.internal:4999 \
+  remote-org-chart:local
+```
+
+Verify `curl --fail http://127.0.0.1:4000/api/health` and
+`curl --fail http://127.0.0.1:4000/`. This local HTTP check covers process startup and
+static/API routing; use HTTPS (as Render does) for the Secure login cookie.
+
+## Deploy to Render
+
+The repository includes a Render Blueprint with one Docker web service, manual deploys,
+and `/api/health` as its health check. Render treats any `2xx`/`3xx` health response as
+healthy. The Blueprint starts on the Free plan and prompts for all secret values marked
+`sync: false`.
+
+1. Push the repository to GitHub or GitLab.
+2. In Render, choose **New → Blueprint** and connect the repository.
+3. Supply `SECRET_KEY_BASE`, `PHX_HOST`, `APP_USERNAME`, `APP_PASSWORD`, and
+   `REMOTE_API_TOKEN` when prompted. `PHX_HOST` is the assigned hostname, for example
+   `remote-org-chart.onrender.com`.
+4. Create the service and wait for `/api/health` to pass.
+5. Open the public HTTPS URL, sign in, load, refresh, and sign out.
+
+The Free web-service plan costs $0 but spins down after 15 minutes without inbound
+traffic; the next request can take about a minute. For an interview URL that must stay
+warm, choose the `0.5c-512mb` plan (formerly Starter), currently advertised by Render at
+$7/month. Render pricing and plan names can change, so verify the amount in the dashboard
+before purchase. The Blueprint intentionally does not select a paid plan.
+
+References: [Render Blueprint fields](https://render.com/docs/blueprint-spec),
+[health checks](https://render.com/docs/health-checks),
+[Free-plan behavior](https://render.com/docs/free), and
+[current pricing](https://render.com/pricing).
+
+## Read-only sandbox validation
+
+When live credentials are available, validate the assumed contract without saving a raw
+response:
+
+1. call `/v1/identity/current` and confirm only that a company ID/name exist;
+2. fetch a one-record employment page and record only the total count;
+3. fetch bulk pages and calculate only field-presence booleans, record/null counts, enum
+   distributions, department count, and manager-ID coverage;
+4. compare those aggregate observations with `fixtures/remote/README.md`;
+5. add a redacted failing test before changing the mapper for any contract mismatch.
+
+Never print the Authorization header, names, emails, or raw response bodies during this
+validation.
+
+## Deliberate limitations and production hardening
+
+This implementation has no user database, password reset, roles, login rate limiter,
+persistent/distributed cache, background synchronization, webhooks, editing, or
+multi-company selection. It is designed for one configured company and one application
+instance.
+
+For a longer-lived product, add rate limiting and audit events, a real identity provider,
+secret rotation procedures, observability/alerts, a shared cache with refresh locking,
+contract monitoring, CSP tailored to the built assets, and load/accessibility testing.

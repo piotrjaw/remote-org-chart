@@ -1,6 +1,8 @@
 import Config
 
-config :remote_org_chart, secure_cookies: true
+config :remote_org_chart,
+  secure_cookies: true,
+  gzip_static: true
 
 # Do not print debug messages in production
 config :logger, level: :info

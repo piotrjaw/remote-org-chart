@@ -21,7 +21,7 @@ defmodule RemoteOrgChartWeb.Endpoint do
   plug Plug.Static,
     at: "/",
     from: :remote_org_chart,
-    gzip: false,
+    gzip: Application.compile_env(:remote_org_chart, :gzip_static, false),
     only: RemoteOrgChartWeb.static_paths()
 
   # Code reloading can be explicitly enabled under the
