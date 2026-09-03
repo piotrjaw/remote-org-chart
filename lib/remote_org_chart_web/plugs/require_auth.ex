@@ -16,6 +16,7 @@ defmodule RemoteOrgChartWeb.Plugs.RequireAuth do
       conn
     else
       conn
+      |> put_resp_header("cache-control", "no-store")
       |> put_status(:unauthorized)
       |> Phoenix.Controller.json(%{
         error: %{code: "authentication_required"}

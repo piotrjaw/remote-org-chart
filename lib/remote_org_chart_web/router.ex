@@ -16,8 +16,15 @@ defmodule RemoteOrgChartWeb.Router do
     plug RemoteOrgChartWeb.Plugs.RequireAuth
   end
 
+  pipeline :spa do
+    plug :accepts, ["html"]
+    plug :put_secure_browser_headers
+  end
+
   scope "/api", RemoteOrgChartWeb do
     pipe_through :api
+
+    get "/health", HealthController, :show
   end
 
   scope "/api", RemoteOrgChartWeb do
@@ -26,5 +33,25 @@ defmodule RemoteOrgChartWeb.Router do
     get "/session", SessionController, :show
     post "/session", SessionController, :create
     delete "/session", SessionController, :delete
+  end
+
+  scope "/api", RemoteOrgChartWeb do
+    pipe_through [:api_session, :authenticated]
+
+    get "/org-chart", OrgChartController, :index
+    post "/org-chart/refresh", OrgChartController, :refresh
+  end
+
+  scope "/api", RemoteOrgChartWeb do
+    pipe_through :api
+
+    match :*, "/*path", ApiNotFoundController, :show
+  end
+
+  scope "/", RemoteOrgChartWeb do
+    pipe_through :spa
+
+    get "/", SpaController, :index
+    get "/*path", SpaController, :index
   end
 end

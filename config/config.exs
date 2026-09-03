@@ -10,6 +10,7 @@ import Config
 config :remote_org_chart,
   remote_cache_ttl_ms: 300_000,
   auth_provider: RemoteOrgChart.Auth.EnvironmentProvider,
+  remote_cache_module: RemoteOrgChart.RemoteCache,
   secure_cookies: false
 
 # Configures the endpoint

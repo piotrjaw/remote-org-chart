@@ -3,7 +3,9 @@ import Config
 config :remote_org_chart,
   remote_source: RemoteOrgChart.Remote.FixtureClient,
   remote_fixture_directory: Path.expand("../fixtures/remote", __DIR__),
-  app_credentials: %{username: "reviewer", password: "test-password"}
+  app_credentials: %{username: "reviewer", password: "test-password"},
+  remote_cache_module: RemoteOrgChartWeb.OrgChartControllerTest.CacheStub,
+  spa_index_path: Path.expand("../assets/index.html", __DIR__)
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
