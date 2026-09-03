@@ -23,6 +23,16 @@ end
 config :remote_org_chart,
   remote_api_base_url: System.get_env("REMOTE_API_BASE_URL", "https://gateway.remote-sandbox.com")
 
+if cache_ttl = System.get_env("REMOTE_CACHE_TTL_SECONDS") do
+  cache_ttl_ms =
+    case Integer.parse(cache_ttl) do
+      {seconds, ""} when seconds >= 0 -> seconds * 1_000
+      _invalid -> raise "REMOTE_CACHE_TTL_SECONDS must be a non-negative integer"
+    end
+
+  config :remote_org_chart, remote_cache_ttl_ms: cache_ttl_ms
+end
+
 if config_env() != :test do
   case System.get_env("REMOTE_DATA_SOURCE") do
     nil ->

@@ -7,6 +7,8 @@
 # General application configuration
 import Config
 
+config :remote_org_chart, remote_cache_ttl_ms: 300_000
+
 # Configures the endpoint
 config :remote_org_chart, RemoteOrgChartWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,

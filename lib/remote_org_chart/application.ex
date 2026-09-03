@@ -12,6 +12,10 @@ defmodule RemoteOrgChart.Application do
       RemoteOrgChartWeb.Telemetry,
       # Start the PubSub system
       {Phoenix.PubSub, name: RemoteOrgChart.PubSub},
+      # Cache one complete, normalized organization chart in memory.
+      {RemoteOrgChart.RemoteCache,
+       fetcher: &RemoteOrgChart.Remote.fetch_chart/0,
+       ttl_ms: Application.fetch_env!(:remote_org_chart, :remote_cache_ttl_ms)},
       # Start the Endpoint (http/https)
       RemoteOrgChartWeb.Endpoint
       # Start a worker by calling: RemoteOrgChart.Worker.start_link(arg)
