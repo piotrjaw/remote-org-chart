@@ -20,7 +20,7 @@ defmodule RemoteOrgChart.RuntimeConfig do
 
     %{
       secret_key_base: secret_key_base,
-      host: fetch_env! |> required!("PHX_HOST") |> String.trim(),
+      host: deployment_host!(get_env),
       port: get_env.("PORT") |> port(),
       app_credentials: %{
         username: fetch_env! |> required!("APP_USERNAME") |> String.trim(),
@@ -79,6 +79,13 @@ defmodule RemoteOrgChart.RuntimeConfig do
   end
 
   def port(_value), do: raise("PORT must be an integer between 1 and 65535")
+
+  defp deployment_host!(get_env) do
+    case get_env.("PHX_HOST") do
+      nil -> get_env |> required!("RENDER_EXTERNAL_HOSTNAME") |> String.trim()
+      host -> fn _variable -> host end |> required!("PHX_HOST") |> String.trim()
+    end
+  end
 
   defp optional_nonblank(nil, _variable, default), do: default
 

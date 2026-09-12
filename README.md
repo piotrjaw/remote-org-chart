@@ -113,7 +113,8 @@ Phoenix digests. Generated assets and release directories are ignored by Git.
 | `REMOTE_API_BASE_URL` | optional | optional | `https://gateway.remote-sandbox.com` |
 | `REMOTE_CACHE_TTL_SECONDS` | optional | optional | `300`; non-negative integer |
 | `SECRET_KEY_BASE` | from `dev.exs` | required, at least 64 bytes | Encrypts/signs cookies |
-| `PHX_HOST` | not used | required | Public hostname without scheme |
+| `PHX_HOST` | not used | optional | Custom public hostname without scheme; defaults to Render's `RENDER_EXTERNAL_HOSTNAME` |
+| `RENDER_EXTERNAL_HOSTNAME` | not used | supplied by Render | Assigned `onrender.com` hostname |
 | `PORT` | optional | supplied by Render | `4000` |
 
 Generate a production cookie secret with `mix phx.gen.secret`. Startup errors name a
@@ -227,9 +228,8 @@ healthy. The Blueprint starts on the Free plan and prompts for all secret values
 
 1. Push the repository to GitHub or GitLab.
 2. In Render, choose **New → Blueprint** and connect the repository.
-3. Supply `SECRET_KEY_BASE`, `PHX_HOST`, `APP_USERNAME`, `APP_PASSWORD`, and
-   `REMOTE_API_TOKEN` when prompted. `PHX_HOST` is the assigned hostname, for example
-   `remote-org-chart.onrender.com`.
+3. Supply `SECRET_KEY_BASE`, `APP_USERNAME`, `APP_PASSWORD`, and `REMOTE_API_TOKEN`
+   when prompted. Render supplies the assigned hostname automatically.
 4. Create the service and wait for `/api/health` to pass.
 5. Open the public HTTPS URL, sign in, load, refresh, and sign out.
 

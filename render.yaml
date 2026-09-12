@@ -9,8 +9,6 @@ services:
     envVars:
       - key: SECRET_KEY_BASE
         sync: false
-      - key: PHX_HOST
-        sync: false
       - key: APP_USERNAME
         sync: false
       - key: APP_PASSWORD

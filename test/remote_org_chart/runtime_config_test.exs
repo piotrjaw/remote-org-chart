@@ -28,10 +28,18 @@ defmodule RemoteOrgChart.RuntimeConfigTest do
     assert byte_size(secret) == 64
   end
 
+  test "uses Render's assigned external hostname when PHX_HOST is not set" do
+    env =
+      @valid_env
+      |> Map.delete("PHX_HOST")
+      |> Map.put("RENDER_EXTERNAL_HOSTNAME", "remote-org-chart.onrender.com")
+
+    assert %{host: "remote-org-chart.onrender.com"} = production!(env)
+  end
+
   test "rejects every missing or blank production value without printing it" do
     required = [
       "SECRET_KEY_BASE",
-      "PHX_HOST",
       "APP_USERNAME",
       "APP_PASSWORD",
       "REMOTE_API_TOKEN",
