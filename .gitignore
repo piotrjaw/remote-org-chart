@@ -33,3 +33,6 @@ remote_org_chart-*.tar
 # Frontend dependencies and generated production assets.
 /assets/node_modules/
 /priv/static/
+
+# Local visual-design companion artifacts.
+.superpowers/

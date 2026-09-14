@@ -6,7 +6,178 @@ import type { OrgChartResponse, PersonNode as Person } from '../api/types'
 import OrgChart from './OrgChart'
 
 describe('OrgChart', () => {
-  it('renders every person in a recursive, accessible three-level outline', () => {
+  it('starts both organization groups collapsed and expands them independently', async () => {
+    const user = userEvent.setup()
+    const report = person('report', 'Riley Report')
+    const leader = person('leader', 'Lee Leader', [report])
+    const unassigned = person('unassigned', 'Uma Unassigned')
+
+    render(<OrgChart chart={chart([leader, unassigned])} {...actions()} />)
+
+    const reportingGroup = screen
+      .getByText('Reporting structure')
+      .closest('details')
+    const unassignedGroup = screen
+      .getByText('No reporting line')
+      .closest('details')
+
+    expect(reportingGroup).not.toHaveAttribute('open')
+    expect(unassignedGroup).not.toHaveAttribute('open')
+    expect(
+      within(reportingGroup!.querySelector('summary')!).getByText('2 employees'),
+    ).toBeInTheDocument()
+    expect(
+      within(unassignedGroup!.querySelector('summary')!).getByText('1 employee'),
+    ).toBeInTheDocument()
+
+    await user.click(
+      within(reportingGroup!).getByText('Reporting structure'),
+    )
+    await user.click(within(unassignedGroup!).getByText('No reporting line'))
+
+    expect(reportingGroup).toHaveAttribute('open')
+    expect(unassignedGroup).toHaveAttribute('open')
+
+    await user.click(
+      within(reportingGroup!).getByText('Reporting structure'),
+    )
+
+    expect(reportingGroup).not.toHaveAttribute('open')
+    expect(unassignedGroup).toHaveAttribute('open')
+  })
+
+  it('collapses every parent and reveals one hierarchy level at a time', async () => {
+    const user = userEvent.setup()
+    const engineer = person('engineer', 'Sam Engineer')
+    const manager = person('manager', 'Morgan Manager', [engineer])
+    const leader = person('leader', 'Lee Leader', [manager])
+
+    render(<OrgChart chart={chart([leader])} {...actions()} />)
+
+    const reportingGroup = screen
+      .getByText('Reporting structure')
+      .closest('details')!
+
+    await user.click(within(reportingGroup).getByText('Reporting structure'))
+
+    const leaderCard = screen
+      .getByRole('heading', { name: 'Lee Leader' })
+      .closest('summary')!
+    const managerCard = screen
+      .getByRole('heading', { name: 'Morgan Manager' })
+      .closest('summary')!
+    const leaderDisclosure = leaderCard.closest('details')
+    const managerDisclosure = managerCard.closest('details')
+
+    expect(leaderDisclosure).not.toHaveAttribute('open')
+    expect(managerDisclosure).not.toHaveAttribute('open')
+
+    await user.click(leaderCard)
+
+    expect(leaderDisclosure).toHaveAttribute('open')
+    expect(managerDisclosure).not.toHaveAttribute('open')
+
+    await user.click(managerCard)
+
+    expect(leaderDisclosure).toHaveAttribute('open')
+    expect(managerDisclosure).toHaveAttribute('open')
+  })
+
+  it('uses the entire parent card as its disclosure summary', async () => {
+    const user = userEvent.setup()
+    const report = person('report', 'Riley Report')
+    const leader = person('leader', 'Lee Leader', [report])
+
+    render(<OrgChart chart={chart([leader])} {...actions()} />)
+
+    await user.click(screen.getByText('Reporting structure'))
+
+    const parentCard = screen
+      .getByRole('heading', { name: 'Lee Leader' })
+      .closest('summary')!
+    const parentDisclosure = parentCard.closest('details')
+
+    expect(parentCard.tagName).toBe('SUMMARY')
+    expect(parentDisclosure).not.toHaveAttribute('open')
+    expect(parentCard).toHaveAccessibleName(
+      /Lee Leader.*Title unavailable.*Department unavailable.*1 direct report/,
+    )
+    expect(within(parentCard).getByText('1 direct report')).toBeInTheDocument()
+    expect(within(parentCard).queryByRole('button')).not.toBeInTheDocument()
+    expect(screen.getByText('Riley Report')).not.toBeVisible()
+
+    await user.click(parentCard)
+
+    expect(parentDisclosure).toHaveAttribute('open')
+    expect(screen.getByText('Riley Report')).toBeVisible()
+  })
+
+  it('distinguishes direct reports from all nested reports', async () => {
+    const user = userEvent.setup()
+    const engineeringManager = person('engineering-manager', 'Evan Manager', [
+      person('engineer-one', 'Riley Engineer'),
+      person('engineer-two', 'Sam Engineer'),
+    ])
+    const financeManager = person('finance-manager', 'Finley Manager', [
+      person('accountant', 'Alex Accountant'),
+    ])
+    const leader = person('leader', 'Lee Leader', [
+      engineeringManager,
+      financeManager,
+    ])
+
+    render(<OrgChart chart={chart([leader])} {...actions()} />)
+
+    await user.click(screen.getByText('Reporting structure'))
+
+    const leaderCard = screen
+      .getByRole('heading', { name: 'Lee Leader' })
+      .closest('summary')!
+    const engineeringManagerCard = screen
+      .getByRole('heading', { name: 'Evan Manager' })
+      .closest('summary')!
+    const financeManagerCard = screen
+      .getByRole('heading', { name: 'Finley Manager' })
+      .closest('summary')!
+
+    expect(
+      within(leaderCard).getByText('2 direct · 5 total reports'),
+    ).toBeInTheDocument()
+    expect(
+      within(engineeringManagerCard).getByText('2 direct reports'),
+    ).toBeInTheDocument()
+    expect(
+      within(financeManagerCard).getByText('1 direct report'),
+    ).toBeInTheDocument()
+  })
+
+  it('marks only roots without a manager or reports as having no reporting line', () => {
+    const external = person('external', 'Erin External', [], {
+      manager: { id: 'outside-company', name: 'Outside Manager' },
+    })
+    const unassigned = person('unassigned', 'Uma Unassigned')
+
+    render(<OrgChart chart={chart([external, unassigned])} {...actions()} />)
+
+    const reportingGroup = screen
+      .getByText('Reporting structure')
+      .closest('details')
+    const unassignedGroup = screen
+      .getByText('No reporting line')
+      .closest('details')
+
+    expect(within(reportingGroup!).getByText('Erin External')).toBeInTheDocument()
+    expect(within(unassignedGroup!).getByText('Uma Unassigned')).toBeInTheDocument()
+    expect(
+      within(unassignedGroup!).getByText('No manager assigned'),
+    ).toBeInTheDocument()
+    expect(
+      within(reportingGroup!).queryByText('No manager assigned'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders every person in a recursive, accessible three-level outline', async () => {
+    const user = userEvent.setup()
     const engineer = person('engineer', 'Sam Engineer')
     const manager = person('manager', 'Morgan Manager', [engineer], {
       title: 'Engineering manager',
@@ -21,6 +192,16 @@ describe('OrgChart', () => {
     })
 
     render(<OrgChart chart={chart([ceo])} {...actions()} />)
+
+    await user.click(screen.getByText('Reporting structure'))
+    await user.click(
+      screen.getByRole('heading', { name: 'Casey Chief' }).closest('summary')!,
+    )
+    await user.click(
+      screen
+        .getByRole('heading', { name: 'Morgan Manager' })
+        .closest('summary')!,
+    )
 
     const tree = screen.getByRole('list', { name: 'Organization hierarchy' })
     expect(within(tree).getAllByText('Casey Chief')).toHaveLength(1)
@@ -96,9 +277,10 @@ describe('OrgChart', () => {
     expect(
       screen.getByRole('heading', { name: 'Acme Sandbox Corp' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('1 employee')).toBeInTheDocument()
-    expect(screen.getByText('1 reporting root')).toBeInTheDocument()
-    expect(screen.getByText(/Updated/)).toBeInTheDocument()
+    const summary = screen.getByLabelText('Organization summary')
+    expect(within(summary).getByText('1 employee')).toBeInTheDocument()
+    expect(within(summary).getByText('1 reporting root')).toBeInTheDocument()
+    expect(within(summary).getByText(/Updated/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
