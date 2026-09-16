@@ -99,6 +99,10 @@ describe('OrgChart', () => {
 
     expect(parentCard.tagName).toBe('SUMMARY')
     expect(parentDisclosure).not.toHaveAttribute('open')
+    expect(within(parentCard).getByText('LL')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    )
     expect(parentCard).toHaveAccessibleName(
       /Lee Leader.*Title unavailable.*Department unavailable.*1 direct report/,
     )
@@ -174,6 +178,46 @@ describe('OrgChart', () => {
     expect(
       within(reportingGroup!).queryByText('No manager assigned'),
     ).not.toBeInTheDocument()
+  })
+
+  it('hides archived employees by default and reveals them on request', async () => {
+    const user = userEvent.setup()
+    const activeReport = person('active-report', 'Avery Active', [], {
+      manager: { id: 'archived-manager', name: 'Morgan Archived' },
+      status: 'active',
+    })
+    const archivedManager = person(
+      'archived-manager',
+      'Morgan Archived',
+      [activeReport],
+      {
+        manager: { id: 'leader', name: 'Lee Leader' },
+        status: 'ARCHIVED',
+      },
+    )
+    const leader = person('leader', 'Lee Leader', [archivedManager], {
+      status: 'active',
+    })
+
+    render(<OrgChart chart={chart([leader])} {...actions()} />)
+
+    const archivedToggle = screen.getByRole('checkbox', {
+      name: 'Show archived employees',
+    })
+    const summary = screen.getByLabelText('Organization summary')
+
+    expect(archivedToggle).not.toBeChecked()
+    expect(screen.queryByText('Morgan Archived')).not.toBeInTheDocument()
+    expect(screen.getByText('Avery Active')).toBeInTheDocument()
+    expect(within(summary).getByText('2 employees')).toBeInTheDocument()
+    expect(within(summary).getByText('2 reporting roots')).toBeInTheDocument()
+
+    await user.click(archivedToggle)
+
+    expect(archivedToggle).toBeChecked()
+    expect(screen.getByText('Morgan Archived')).toBeInTheDocument()
+    expect(within(summary).getByText('3 employees')).toBeInTheDocument()
+    expect(within(summary).getByText('1 reporting root')).toBeInTheDocument()
   })
 
   it('renders every person in a recursive, accessible three-level outline', async () => {

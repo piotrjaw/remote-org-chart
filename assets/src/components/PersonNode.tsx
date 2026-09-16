@@ -82,22 +82,25 @@ function PersonCardContents({
 
   return (
     <>
-      <span className="person-card__identity">
+      <span className="person-avatar" aria-hidden="true">
+        {personInitials(person.name)}
+      </span>
+
+      <span className="person-card__content">
         <span className="person-name" role="heading" aria-level={3}>
           {person.name}
         </span>
-        <span className="person-title">
-          {person.title ?? 'Title unavailable'}
-        </span>
-        <span className="person-department">
-          {person.department?.name ?? 'Department unavailable'}
+        <span className="person-role">
+          <span className="person-title">
+            {person.title ?? 'Title unavailable'}
+          </span>
+          <span className="person-department">
+            {person.department?.name ?? 'Department unavailable'}
+          </span>
         </span>
         {person.manager?.name && (
           <span className="manager-line">Reports to {person.manager.name}</span>
         )}
-      </span>
-
-      <span className="person-card__footer">
         <span className="badges" aria-label="Employment details">
           {unassigned && (
             <span className="assignment-state">No manager assigned</span>
@@ -110,6 +113,14 @@ function PersonCardContents({
       </span>
     </>
   )
+}
+
+function personInitials(name: string): string {
+  const nameParts = name.trim().split(/\s+/).filter(Boolean)
+  const firstInitial = nameParts[0]?.[0] ?? '?'
+  const lastInitial = nameParts.length > 1 ? nameParts.at(-1)?.[0] : ''
+
+  return `${firstInitial}${lastInitial}`.toLocaleUpperCase()
 }
 
 export default PersonNode

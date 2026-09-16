@@ -17,6 +17,7 @@
 - Use `N direct · M total reports` only when total reports exceed direct reports.
 - Use CSS `@media (prefers-color-scheme: dark)` rather than JavaScript theme state.
 - Keep the ochre “No reporting line” treatment and visible focus styles in both themes.
+- Match the selected Quiet depth employee-card composition with decorative monogram avatars, compact role lines, headline-aligned counts, and tighter nesting.
 
 ---
 
@@ -122,4 +123,3 @@ Open the local application, authenticate, expand the reporting structure, and in
 - [ ] **Step 3: Inspect mobile layout**
 
 At a viewport near `390px`, verify actions, chart metadata, cards, badges, and report-count text wrap cleanly with no horizontal overflow.
-

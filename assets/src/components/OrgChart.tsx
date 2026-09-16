@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import type { OrgChartResponse, PersonNode as Person } from '../api/types'
 import PersonNode from './PersonNode'
@@ -19,11 +19,17 @@ function OrgChart({
   onRefresh,
   onLogout,
 }: OrgChartProps) {
-  const { reportingRoots, unassignedRoots } = partitionRoots(chart.roots)
-  const reportTotals = useMemo(
-    () => calculateReportTotals(chart.roots),
-    [chart.roots],
+  const [showArchived, setShowArchived] = useState(false)
+  const visibleRoots = useMemo(
+    () => (showArchived ? chart.roots : withoutArchivedEmployees(chart.roots)),
+    [chart.roots, showArchived],
   )
+  const { reportingRoots, unassignedRoots } = partitionRoots(visibleRoots)
+  const reportTotals = useMemo(
+    () => calculateReportTotals(visibleRoots),
+    [visibleRoots],
+  )
+  const visibleEmployeeCount = countPeople(visibleRoots)
 
   return (
     <main className="app-shell">
@@ -31,12 +37,20 @@ function OrgChart({
         <div>
           <h1>{chart.company.name}</h1>
           <div className="chart-meta" aria-label="Organization summary">
-            <span>{pluralize(chart.meta.employee_count, 'employee')}</span>
-            <span>{pluralize(chart.meta.root_count, 'reporting root')}</span>
+            <span>{pluralize(visibleEmployeeCount, 'employee')}</span>
+            <span>{pluralize(visibleRoots.length, 'reporting root')}</span>
             <span>Updated {formatTimestamp(chart.meta.fetched_at)}</span>
           </div>
         </div>
         <div className="chart-actions">
+          <label className="archived-toggle">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(event) => setShowArchived(event.currentTarget.checked)}
+            />
+            <span>Show archived employees</span>
+          </label>
           <button type="button" onClick={onRefresh} disabled={refreshing}>
             {refreshing ? 'Refreshing…' : 'Refresh data'}
           </button>
@@ -69,7 +83,7 @@ function OrgChart({
 
       <section className="chart-region" aria-labelledby="chart-heading">
         <h2 id="chart-heading">Organization groups</h2>
-        {chart.roots.length === 0 ? (
+        {visibleRoots.length === 0 ? (
           <div className="empty-state">
             <p>No employees were returned.</p>
             <p>Refresh the data or confirm the configured company has employments.</p>
@@ -124,6 +138,24 @@ function OrgChart({
       </section>
     </main>
   )
+}
+
+function withoutArchivedEmployees(roots: Person[]): Person[] {
+  const visibleRoots: Person[] = []
+
+  function addVisible(person: Person, siblings: Person[]) {
+    if (person.status?.trim().toLocaleLowerCase() === 'archived') {
+      person.reports.forEach((report) => addVisible(report, visibleRoots))
+      return
+    }
+
+    const reports: Person[] = []
+    siblings.push({ ...person, reports })
+    person.reports.forEach((report) => addVisible(report, reports))
+  }
+
+  roots.forEach((root) => addVisible(root, visibleRoots))
+  return visibleRoots
 }
 
 function partitionRoots(roots: Person[]) {

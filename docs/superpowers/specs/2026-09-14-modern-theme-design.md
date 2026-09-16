@@ -62,6 +62,9 @@ Use the existing local system sans-serif stack with no network font request. Ret
 - Keep the existing maximum-width, left-aligned content layout.
 - Increase surface radii to roughly `10–12px`; use smaller radii for controls and badges to preserve hierarchy.
 - Replace the prominent page grid with a quieter canvas treatment so reporting connectors carry the structure.
+- Give each employee a compact, deterministic first-and-last-initial monogram matching the selected Quiet depth preview; the monogram is decorative and hidden from assistive technology.
+- Keep the name and report count on the first row, combine title and department into one compact role line, and place employment badges below it.
+- Tighten nested indentation and connector weight so expanded teams retain the compact map-like silhouette shown in the selected preview.
 - Keep the whole parent card as the disclosure summary and retain collapsed-by-default behavior.
 - Use restrained hover elevation and visible keyboard focus only where elements are interactive.
 - Let metadata and actions wrap naturally on narrow screens without reducing tap targets.
@@ -93,4 +96,3 @@ Define semantic CSS custom properties for light mode in `:root`, then override t
 - Frontend tests, lint, and production build pass.
 - `git diff --check` passes.
 - Inspect the application in both emulated light and dark system appearances at desktop and mobile widths.
-
