@@ -181,6 +181,27 @@ describe('OrgChart', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows an explicit reporting line for a manager without an assigned manager', () => {
+    const report = person('report', 'Riley Report', [], {
+      manager: { id: 'manager', name: 'Morgan Manager' },
+    })
+    const manager = person('manager', 'Morgan Manager', [report])
+    render(<OrgChart chart={chart([manager])} {...actions()} />)
+
+    const card = screen.getByText('Morgan Manager').closest('summary')!
+    expect(within(card).getByText('No manager assigned')).toBeInTheDocument()
+    expect(screen.getByText('Reports to Morgan Manager')).toBeInTheDocument()
+  })
+
+  it('distinguishes an unnamed assigned manager from no assigned manager', () => {
+    const employee = person('employee', 'Erin Employee', [], {
+      manager: { id: 'external', name: null },
+    })
+    render(<OrgChart chart={chart([employee])} {...actions()} />)
+    expect(screen.getByText('Reports to an assigned manager (name unavailable)')).toBeInTheDocument()
+    expect(screen.queryByText('No manager assigned')).not.toBeInTheDocument()
+  })
+
   it('hides archived employees by default and reveals them on request', async () => {
     const user = userEvent.setup()
     const activeReport = person('active-report', 'Avery Active', [], {
@@ -288,9 +309,23 @@ describe('OrgChart', () => {
     expect(screen.getByText('Engineering manager')).toBeInTheDocument()
     expect(screen.getByText('Engineering')).toBeInTheDocument()
     expect(screen.getByText('Reports to Casey Chief')).toBeInTheDocument()
-    expect(screen.getByText('active')).toBeInTheDocument()
-    expect(screen.getByText('employee')).toBeInTheDocument()
-    expect(screen.getByText('eor')).toBeInTheDocument()
+    expect(screen.getByText('Active')).toBeInTheDocument()
+    expect(screen.getByText('Employee')).toBeInTheDocument()
+    expect(screen.getByText('EOR')).toBeInTheDocument()
+  })
+
+  it('formats API enum chips as readable labels, including unfamiliar values', () => {
+    const employee = person('one', 'One Person', [], {
+      status: ' PENDING_REVIEW ',
+      employment_type: 'global_payroll_employee',
+      employment_model: 'global_payroll',
+    })
+    render(<OrgChart chart={chart([employee])} {...actions()} />)
+
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
+    expect(screen.getByText('Global payroll employee')).toBeInTheDocument()
+    expect(screen.getByText('Global payroll')).toBeInTheDocument()
+    expect(employee.employment_type).toBe('global_payroll_employee')
   })
 
   it('handles missing title and department without empty markup', () => {

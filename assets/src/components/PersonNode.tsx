@@ -107,9 +107,13 @@ function PersonCardContents({
               ? `No reporting line: ${person.manager?.name ? `manager ${person.manager.name} is archived` : 'the assigned manager is archived'}.`
               : 'No reporting line: no manager is assigned in Remote.'}
           </span>
-        ) : person.manager?.name && (
+        ) : (
           <span className="manager-line">
-            {person.manager_archived ? 'Archived manager: ' : 'Reports to '}{person.manager.name}
+            {person.manager
+              ? person.manager.name
+                ? `${person.manager_archived ? 'Archived manager: ' : 'Reports to '}${person.manager.name}`
+                : 'Reports to an assigned manager (name unavailable)'
+              : 'No manager assigned'}
           </span>
         )}
         <span className="badges" aria-label="Employment details">
@@ -118,14 +122,21 @@ function PersonCardContents({
               {person.manager_archived ? 'Manager archived' : 'No manager assigned'}
             </span>
           )}
-          {person.status && <span className="employment-status">{person.status}</span>}
-          {person.employment_type && <span>{person.employment_type}</span>}
-          {person.employment_model && <span>{person.employment_model}</span>}
+          {person.status && <span className="employment-status">{chipLabel(person.status)}</span>}
+          {person.employment_type && <span>{chipLabel(person.employment_type)}</span>}
+          {person.employment_model && <span>{chipLabel(person.employment_model)}</span>}
         </span>
         <span className="report-count">{reportLabel}</span>
       </span>
     </>
   )
+}
+
+function chipLabel(value: string): string {
+  return value.trim().toLowerCase().split(/[_\s-]+/).map((word, index) => {
+    if (['eor', 'peo', 'cor'].includes(word)) return word.toUpperCase()
+    return index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word
+  }).join(' ')
 }
 
 function personInitials(name: string): string {
