@@ -3,10 +3,9 @@ defmodule RemoteOrgChartWeb.RemoteWebhookControllerTest do
 
   @body ~s({"event_type":"employment.updated","employment_id":"emp_123"})
   @timestamp "1726500000000"
-  @signature "23fc4e327ffd8846d2d26e201a250373518cb5feda82e8040d389d26af6e06de"
 
   test "invalidates the cache for an authentic Remote webhook", %{conn: conn} do
-    conn = post_webhook(conn, @signature)
+    conn = post_webhook(conn, :valid)
 
     assert response(conn, 204) == ""
     assert_received :cache_invalidated
@@ -59,11 +58,60 @@ defmodule RemoteOrgChartWeb.RemoteWebhookControllerTest do
     refute_received :cache_invalidated
   end
 
-  defp post_webhook(conn, signature) do
+  test "rejects old, future, and malformed signed timestamps" do
+    for timestamp <- [
+          "1726500000000",
+          Integer.to_string(System.system_time(:millisecond) + 360_000),
+          "not-a-timestamp"
+        ] do
+      conn = post_webhook(build_conn(), :valid, timestamp)
+      assert json_response(conn, 401)
+      refute_received :cache_invalidated
+    end
+  end
+
+  test "acknowledges a duplicate without invalidating twice" do
+    timestamp = Integer.to_string(System.system_time(:millisecond))
+    body = Jason.encode!(%{id: "event-#{System.unique_integer([:positive])}"})
+    assert post_webhook(build_conn(), :valid, timestamp, body) |> response(204) == ""
+    assert_received :cache_invalidated
+    assert post_webhook(build_conn(), :valid, timestamp, body) |> response(204) == ""
+    refute_received :cache_invalidated
+  end
+
+  test "a routing rejection does not consume an authentic delivery" do
+    timestamp = Integer.to_string(System.system_time(:millisecond))
+    body = Jason.encode!(%{id: "negotiation-#{System.unique_integer([:positive])}"})
+
+    assert_raise Phoenix.NotAcceptableError, fn ->
+      build_conn()
+      |> put_req_header("accept", "text/html")
+      |> post_webhook(:valid, timestamp, body)
+    end
+
+    refute_received :cache_invalidated
+    assert post_webhook(build_conn(), :valid, timestamp, body) |> response(204) == ""
+    assert_received :cache_invalidated
+  end
+
+  defp post_webhook(
+         conn,
+         signature,
+         timestamp \\ Integer.to_string(System.system_time(:millisecond)),
+         body \\ @body
+       ) do
+    signature =
+      if signature == :valid do
+        :crypto.mac(:hmac, :sha256, "test-webhook-signing-key", body <> ":" <> timestamp)
+        |> Base.encode16(case: :lower)
+      else
+        signature
+      end
+
     conn
     |> put_req_header("content-type", "application/json")
-    |> put_req_header("x-remote-timestamp", @timestamp)
+    |> put_req_header("x-remote-timestamp", timestamp)
     |> put_req_header("x-remote-signature", signature)
-    |> post("/api/webhooks/remote", @body)
+    |> post("/api/webhooks/remote", body)
   end
 end

@@ -1,6 +1,7 @@
 import Config
 
 config :remote_org_chart,
+  security_state_options: [login_limit: 1000],
   remote_source: RemoteOrgChart.Remote.FixtureClient,
   remote_fixture_directory: Path.expand("../fixtures/remote", __DIR__),
   app_credentials: %{username: "reviewer", password: "test-password"},

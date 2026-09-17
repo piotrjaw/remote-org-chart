@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import LoginForm from './LoginForm'
+import { ApiRequestError } from '../api/client'
 
 describe('LoginForm', () => {
   it('renders labeled username and password fields', () => {
@@ -64,4 +65,14 @@ describe('LoginForm', () => {
     expect(screen.queryByText('private detail')).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Password')).toHaveValue(''))
   })
+  it('explains throttling without calling it an incorrect password', async () => {
+    const user = userEvent.setup()
+    render(<LoginForm onLogin={vi.fn().mockRejectedValue(new ApiRequestError(429, { code: 'login_rate_limited' }))} />)
+    await user.type(screen.getByLabelText('Username'), 'reviewer')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'View org chart' }))
+    expect(await screen.findByText('Too many sign-in attempts. Please wait a minute and try again.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Password')).toHaveValue('')
+  })
+
 })

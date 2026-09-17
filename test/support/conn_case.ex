@@ -31,6 +31,13 @@ defmodule RemoteOrgChartWeb.ConnCase do
     end
   end
 
+  def authenticated_session do
+    {:ok, token} =
+      RemoteOrgChart.SecurityState.create_session(RemoteOrgChart.Auth.credentials_version())
+
+    %{session_id: token}
+  end
+
   setup _tags do
     {:ok, conn: Phoenix.ConnTest.build_conn()}
   end

@@ -9,6 +9,7 @@ defmodule RemoteOrgChartWeb.Endpoint do
     encryption_salt: "7Yti2cGC",
     same_site: "Lax",
     http_only: true,
+    max_age: 8 * 60 * 60,
     secure: Application.compile_env(:remote_org_chart, :secure_cookies, false)
   ]
 
@@ -18,6 +19,8 @@ defmodule RemoteOrgChartWeb.Endpoint do
   #
   # You should set gzip to true if you are running phx.digest
   # when deploying your static files in production.
+  plug RemoteOrgChartWeb.Plugs.SecurityHeaders
+
   plug Plug.Static,
     at: "/",
     from: :remote_org_chart,

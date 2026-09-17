@@ -20,7 +20,7 @@ defmodule RemoteOrgChartWeb.Plugs.RequireAuthTest do
   test "allows authenticated API requests to continue", %{conn: conn} do
     conn =
       conn
-      |> init_test_session(%{authenticated: true})
+      |> init_test_session(authenticated_session())
       |> RequireAuth.call([])
 
     refute conn.halted

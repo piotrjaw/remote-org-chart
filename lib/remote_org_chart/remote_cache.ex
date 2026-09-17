@@ -45,6 +45,9 @@ defmodule RemoteOrgChart.RemoteCache do
        refresh_after_ms: nil,
        retry_after_ms: nil,
        last_error: nil,
+       latest_result: nil,
+       manual_until_ms: nil,
+       refresh_cooldown_ms: Keyword.get(options, :refresh_cooldown_ms, 30_000),
        fetch_timeout_ms: Keyword.get(options, :fetch_timeout_ms, 20_000),
        ttl_ms: Keyword.fetch!(options, :ttl_ms),
        invalidation_debounce_ms: Keyword.get(options, :invalidation_debounce_ms, 2_000),
@@ -71,7 +74,25 @@ defmodule RemoteOrgChart.RemoteCache do
   end
 
   def handle_call(:refresh, _from, state) do
-    fetch(state, state.now.())
+    current_time = state.now.()
+
+    cond do
+      retrying?(state, current_time.monotonic_ms) ->
+        {:reply, fallback(state, state.last_error), state}
+
+      is_integer(state.manual_until_ms) and current_time.monotonic_ms < state.manual_until_ms ->
+        {:reply, state.latest_result, state}
+
+      true ->
+        {:reply, result, updated} = fetch(state, current_time)
+
+        {:reply, result,
+         %{
+           updated
+           | latest_result: result,
+             manual_until_ms: state.now.().monotonic_ms + state.refresh_cooldown_ms
+         }}
+    end
   end
 
   @impl true
@@ -101,6 +122,11 @@ defmodule RemoteOrgChart.RemoteCache do
   defp retrying?(_state, _current_ms), do: false
 
   defp fetch(state, current_time) do
+    {:reply, result, updated} = perform_fetch(state, current_time)
+    {:reply, result, %{updated | latest_result: result}}
+  end
+
+  defp perform_fetch(state, current_time) do
     task = Task.Supervisor.async_nolink(RemoteOrgChart.FetchSupervisor, state.fetcher)
     outcome = Task.yield(task, state.fetch_timeout_ms) || Task.shutdown(task, :brutal_kill)
 

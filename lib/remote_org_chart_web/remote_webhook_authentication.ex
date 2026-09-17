@@ -27,6 +27,7 @@ defmodule RemoteOrgChartWeb.RemoteWebhookAuthentication do
     if RemoteWebhookVerifier.valid?(body, timestamp, signature, signing_key) do
       conn
       |> assign(:remote_webhook_verified, true)
+      |> assign(:remote_webhook_signature, signature)
       |> delete_req_header("content-type")
     else
       reject(conn)

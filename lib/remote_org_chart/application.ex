@@ -10,6 +10,8 @@ defmodule RemoteOrgChart.Application do
     children = [
       # Start the Telemetry supervisor
       RemoteOrgChartWeb.Telemetry,
+      {RemoteOrgChart.SecurityState,
+       Application.get_env(:remote_org_chart, :security_state_options, [])},
       # Start the PubSub system
       {Phoenix.PubSub, name: RemoteOrgChart.PubSub},
       {Task.Supervisor, name: RemoteOrgChart.FetchSupervisor},

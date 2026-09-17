@@ -137,6 +137,21 @@ defmodule RemoteOrgChartWeb.SessionControllerTest do
     end
   end
 
+  test "logout revokes a copied cookie, including protected chart access", %{conn: conn} do
+    login = log_in(conn)
+    saved = recycle(login)
+    csrf = json_response(login, 200)["csrf_token"]
+    logout = login |> recycle() |> put_req_header("x-csrf-token", csrf) |> delete("/api/session")
+    assert response(logout, 204) == ""
+    assert %{"authenticated" => false} = saved |> get("/api/session") |> json_response(200)
+    assert saved |> get("/api/org-chart") |> json_response(401)
+  end
+
+  test "legacy authenticated booleans no longer grant access", %{conn: conn} do
+    conn = conn |> init_test_session(%{authenticated: true}) |> get("/api/org-chart")
+    assert json_response(conn, 401)
+  end
+
   defp enable_csrf_protection(conn) do
     %{conn | private: Map.delete(conn.private, :plug_skip_csrf_protection)}
   end

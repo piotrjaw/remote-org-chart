@@ -26,7 +26,7 @@ defmodule RemoteOrgChartWeb.OrgChartControllerTest do
 
     conn =
       conn
-      |> init_test_session(%{authenticated: true})
+      |> init_test_session(authenticated_session())
       |> get("/api/org-chart")
 
     assert %{
@@ -113,7 +113,7 @@ defmodule RemoteOrgChartWeb.OrgChartControllerTest do
       conn =
         build_conn()
         |> put_req_header("x-request-id", "test-request-id-00000001")
-        |> init_test_session(%{authenticated: true})
+        |> init_test_session(authenticated_session())
         |> get("/api/org-chart")
 
       assert %{"error" => response_error} = json_response(conn, status)
@@ -154,7 +154,7 @@ defmodule RemoteOrgChartWeb.OrgChartControllerTest do
     conn =
       build_conn()
       |> put_req_header("x-request-id", "test-request-id-00000002")
-      |> init_test_session(%{authenticated: true})
+      |> init_test_session(authenticated_session())
       |> get("/api/org-chart")
 
     assert json_response(conn, 500) == %{

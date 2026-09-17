@@ -124,21 +124,38 @@ missing variable but never include its value.
 ## Authentication behavior
 
 `GET /api/session` initializes the encrypted, signed, HTTP-only, SameSite=Lax cookie and
-returns a CSRF token. Login renews the session and CSRF token; logout drops it. The SPA
-keeps the token only in React state—there is no `localStorage` credential or user table.
+returns a CSRF token. Login renews both and stores a random session identifier in the
+cookie. The server stores only its hash, a credential fingerprint, and an absolute
+eight-hour expiry. Every protected request checks this record. Logout revokes it before
+dropping the cookie, so a copied cookie cannot be replayed afterward. Credential changes
+also invalidate existing sessions. The SPA keeps its CSRF token only in React state.
+All session/API responses use `Cache-Control: no-store`.
 
-Rotate reviewer access by changing `APP_USERNAME` and/or `APP_PASSWORD` in Render and
-redeploying. Existing cookies contain only an authenticated boolean, so rotate
-`SECRET_KEY_BASE` too when existing reviewer sessions must be invalidated immediately.
-Production cookies are Secure and therefore require HTTPS.
+Production cookies are Secure. Production responses include a restrictive CSP (scripts,
+styles, and connections from the same origin, no inline scripts or framing) and one-year
+HSTS. Render terminates HTTPS and redirects HTTP at its edge. Local development omits
+CSP/HSTS for Vite and HTTP. Keep `SECRET_KEY_BASE` unique to production; the committed
+development/test values must never be reused. Rotate it if it is exposed.
+
+Session records live in memory on one application instance; restart, deployment, or a
+security-state process restart signs everyone out. Legacy boolean-only cookies are
+rejected. Records expire after eight hours without sliding renewal; at most 10,000 are
+stored, with expired entries pruned. New sessions fail closed if capacity is reached.
+Use a shared session/revocation store before deploying multiple instances.
 
 Signing out immediately hides chart data, waits for server confirmation, and initializes
 a fresh session/CSRF token before enabling login again. If logout fails, the UI warns
 that the session may still be active and offers a retry. Failed session initialization
 also retries the session endpoint before allowing login or chart requests.
 
-Login rate limiting is intentionally outside this take-home scope. Add an edge or
-server-side limiter before using this credential model for a higher-risk public system.
+Login allows ten attempts per 60-second window for the entire shared account, including
+successful and malformed credential submissions. Excess attempts return `429` with
+`Retry-After`; the form asks the reviewer to wait. The budget is atomic and does not
+trust caller-supplied forwarding headers, so changing usernames/IP headers cannot bypass
+it. This deliberately conservative global limit can temporarily block legitimate login
+during an attack; it does not affect already-authenticated sessions. The budget resets
+on restart and is not distributed. Add edge abuse protection and a real identity provider
+for a larger deployment; do not simply raise the budget to address hostile traffic.
 
 ## Cache and refresh policy
 
@@ -148,21 +165,23 @@ server-side limiter before using this credential model for a higher-risk public 
 - A valid Remote employment webhook marks the snapshot for refresh. Webhooks arriving
   close together are coalesced for two seconds, then the next chart request refetches
   the complete snapshot.
-- The Refresh button bypasses freshness and replaces the snapshot only after a complete
-  successful fetch.
-- Concurrent calls are serialized by the GenServer, preventing duplicate upstream
-  refreshes on one instance.
+- The Refresh button bypasses normal TTL freshness and replaces the snapshot only after
+  a complete successful fetch. Manual attempts have a shared 30-second cooldown measured
+  from completion. Calls during that window reuse the latest fetch result, including any
+  newer webhook-triggered snapshot, instead of starting another upstream request.
+- Concurrent calls are serialized by the GenServer; concurrent manual refreshes share
+  the completed result on one instance.
 - Each full fetch runs in a supervised task with a 20-second deadline. Expiry stops
   the task and returns stale data when available, otherwise a temporary error. Cache
   callers wait at most 25 seconds and receive a temporary error on timeout. Reads
   still queue behind a fetch; these deadlines bound waiting rather than implementing
   background refresh while serving the old snapshot.
 - Timeouts, rate limits, and Remote `5xx` errors may return an existing snapshot marked
-  stale. After such a failure, ordinary reads wait at least 30 seconds before retrying
+  stale. After such a failure, reads and manual refreshes wait at least 30 seconds before retrying
   Remote, or longer when its accepted `Retry-After` asks for it (up to 300 seconds).
   The cooldown starts when the attempt finishes and also applies to an empty cache;
-  the Refresh button can still force an immediate attempt. Authentication and
-  invalid-schema errors never use stale data.
+  the Refresh button cannot bypass it. Authentication and invalid-schema errors never
+  use stale data as the result of a failed fetch.
 - Browser responses are always `Cache-Control: no-store`.
 
 `POST /api/webhooks/remote` is public so Remote can reach it, but it accepts an event
@@ -186,9 +205,16 @@ Webhook invalidation has deliberate limits:
   but treats an HTTP response as delivered even when it is `4xx` or `5xx`.
 - A signed event triggers a complete paginated snapshot fetch; it does not patch one
   employee in place.
-- The timestamp participates in the signature but is not rejected for age. This lets
-  delayed Remote retries invalidate safely, but a captured authentic request can be
-  replayed to cause another invalidation. It cannot read or alter chart data.
+- Signed timestamps must be Unix milliseconds within five minutes of server time,
+  including future clock skew. Remote signs each retry with a fresh timestamp. Maintain
+  accurate server clocks; out-of-window deliveries return `401` and rely on TTL recovery.
+- Accepted signatures are hashed and remembered for ten minutes. An exact duplicate
+  receives `204` without another invalidation. This is delivery replay protection, not
+  durable event-ID deduplication: re-signed retries can invalidate again. Memory is
+  bounded to 10,000 entries and fails closed with `503` at capacity. Restart clears this
+  state, so a captured delivery still within the freshness window could invalidate once
+  again after restart. The cache is also empty then. Use shared durable deduplication
+  storage before scaling to multiple instances.
 - The receiver reads at most 1 MB per delivery. Remote employment webhook payloads are
   expected to be much smaller; an oversized delivery is rejected.
 - Cache state and invalidations live only in one BEAM process. They disappear on
@@ -342,11 +368,13 @@ validation.
 
 ## Deliberate limitations and production hardening
 
-This implementation has no user database, password reset, roles, login rate limiter,
+This implementation has no user database, password reset, roles,
 persistent/distributed cache, background synchronization, editing, or multi-company
 selection. Its webhook invalidation has the delivery and single-instance constraints
 listed above. It is designed for one configured company and one application instance.
 
-For a longer-lived product, add rate limiting and audit events, a real identity provider,
-secret rotation procedures, observability/alerts, a shared cache with refresh locking,
-contract monitoring, CSP tailored to the built assets, and load/accessibility testing.
+For a longer-lived product, add edge abuse protection and audit events, a real identity
+provider, secret rotation procedures, observability/alerts, shared security/cache state
+with distributed refresh locking, contract monitoring, and load/accessibility testing.
+Keep checking both npm and Hex advisories: Mint is pinned to 1.10.0, which fixes
+CVE-2026-82728 and CVE-2026-82729. Dependency checks do not replace container/OS scanning.

@@ -5,6 +5,18 @@ defmodule RemoteOrgChart.Auth do
 
   @invalid_input ""
 
+  def credentials_version do
+    {:ok, credentials} = configured_provider().credentials()
+    :crypto.hash(:sha256, :erlang.term_to_binary(credentials))
+  end
+
+  def authenticated?(conn) do
+    RemoteOrgChart.SecurityState.valid_session?(
+      Plug.Conn.get_session(conn, :session_id),
+      credentials_version()
+    )
+  end
+
   @spec authenticate(term(), term(), module()) :: :ok | {:error, :invalid_credentials}
   def authenticate(username, password, provider \\ configured_provider()) do
     case provider.credentials() do

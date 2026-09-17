@@ -425,6 +425,83 @@ defmodule RemoteOrgChart.RemoteCacheTest do
     assert {:ok, ^stale} = RemoteCache.get(cache)
   end
 
+  test "concurrent forced refreshes share one result and honor a completion cooldown" do
+    parent = self()
+    clock = start_agent(fn -> now(0) end)
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         ttl_ms: 300_000,
+         now: fn -> Agent.get(clock, & &1) end,
+         fetcher: fn ->
+           send(parent, {:manual_fetch, self()})
+           receive do: (:finish -> {:ok, chart("manual")})
+         end}
+      )
+
+    tasks = for _ <- 1..5, do: Task.async(fn -> RemoteCache.refresh(cache) end)
+    assert_receive {:manual_fetch, worker}
+    Agent.update(clock, fn _ -> now(10_000) end)
+    send(worker, :finish)
+    results = Enum.map(tasks, &Task.await/1)
+    assert length(Enum.uniq(results)) == 1
+    refute_receive {:manual_fetch, _}, 20
+    Agent.update(clock, fn _ -> now(39_999) end)
+    assert {:ok, _} = RemoteCache.refresh(cache)
+    refute_receive {:manual_fetch, _}, 20
+    Agent.update(clock, fn _ -> now(40_000) end)
+    task = Task.async(fn -> RemoteCache.refresh(cache) end)
+    assert_receive {:manual_fetch, next}
+    send(next, :finish)
+    assert {:ok, _} = Task.await(task)
+  end
+
+  test "manual refresh cannot bypass upstream Retry-After even without a snapshot" do
+    parent = self()
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         ttl_ms: 300_000,
+         fetcher: fn ->
+           send(parent, :fetch_attempt)
+           {:error, Error.temporary(:http, 120)}
+         end}
+      )
+
+    assert {:error, _} = RemoteCache.get(cache)
+    assert_receive :fetch_attempt
+    assert {:error, _} = RemoteCache.refresh(cache)
+    refute_receive :fetch_attempt, 20
+  end
+
+  test "manual cooldown returns a newer webhook snapshot rather than the old manual result" do
+    responses = start_agent(fn -> [chart("old"), chart("new")] end)
+    clock = start_agent(fn -> now(0) end)
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         ttl_ms: 300_000,
+         now: fn -> Agent.get(clock, & &1) end,
+         fetcher: fn ->
+           Agent.get_and_update(responses, fn [head | tail] -> {{:ok, head}, tail} end)
+         end}
+      )
+
+    assert {:ok, _} = RemoteCache.refresh(cache)
+    RemoteCache.invalidate(cache)
+    :sys.get_state(cache)
+    Agent.update(clock, fn _ -> now(2000) end)
+    assert {:ok, latest} = RemoteCache.get(cache)
+    assert hd(latest.chart.roots).id == "root-new"
+    assert {:ok, ^latest} = RemoteCache.refresh(cache)
+  end
+
   defp chart(version) do
     root = %Node{
       id: "root-#{version}",

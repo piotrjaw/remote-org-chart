@@ -1,3 +1,4 @@
+import { ApiRequestError } from '../api/client'
 import { useState, type FormEvent } from 'react'
 
 interface LoginFormProps {
@@ -17,9 +18,11 @@ function LoginForm({ onLogin }: LoginFormProps) {
 
     try {
       await onLogin(username.trim(), password)
-    } catch {
+    } catch (error) {
       setPassword('')
-      setError('The username or password is incorrect.')
+      setError(error instanceof ApiRequestError && error.status === 429
+        ? 'Too many sign-in attempts. Please wait a minute and try again.'
+        : 'The username or password is incorrect.')
     } finally {
       setPending(false)
     }

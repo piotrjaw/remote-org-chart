@@ -12,7 +12,7 @@ defmodule RemoteOrgChartWeb.Plugs.RequireAuth do
 
   @impl true
   def call(conn, _options) do
-    if get_session(conn, :authenticated) == true do
+    if RemoteOrgChart.Auth.authenticated?(conn) do
       conn
     else
       conn
