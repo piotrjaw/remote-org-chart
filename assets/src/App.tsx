@@ -9,6 +9,9 @@ const defaultClient = createApiClient()
 
 type AppState =
   | { kind: 'booting' }
+  | { kind: 'bootstrap-error' }
+  | { kind: 'logging-out' }
+  | { kind: 'logout-error' }
   | { kind: 'unauthenticated' }
   | { kind: 'authenticated-loading' }
   | {
@@ -27,16 +30,19 @@ function App({ client = defaultClient }: AppProps) {
   const [state, setState] = useState<AppState>({ kind: 'booting' })
   const [csrfToken, setCsrfToken] = useState('')
   const operation = useRef(0)
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
 
   useEffect(() => {
     const currentOperation = ++operation.current
 
     async function bootstrap() {
+      let sessionLoaded = false
       try {
         const session = await client.session()
         if (operation.current !== currentOperation) return
 
         setCsrfToken(session.csrf_token)
+        sessionLoaded = true
 
         if (!session.authenticated) {
           setState({ kind: 'unauthenticated' })
@@ -55,7 +61,8 @@ function App({ client = defaultClient }: AppProps) {
         }
       } catch (error) {
         if (operation.current !== currentOperation) return
-        handleLoadFailure(error)
+        if (sessionLoaded) handleLoadFailure(error)
+        else setState({ kind: 'bootstrap-error' })
       }
     }
 
@@ -63,7 +70,13 @@ function App({ client = defaultClient }: AppProps) {
     return () => {
       if (operation.current === currentOperation) operation.current += 1
     }
-  }, [client])
+  }, [client, bootstrapAttempt])
+
+  function restartSession() {
+    setCsrfToken('')
+    setState({ kind: 'booting' })
+    setBootstrapAttempt((attempt) => attempt + 1)
+  }
 
   function handleLoadFailure(error: unknown) {
     setState(
@@ -150,15 +163,48 @@ function App({ client = defaultClient }: AppProps) {
   }
 
   async function logout() {
-    operation.current += 1
-    const token = csrfToken
-    setState({ kind: 'unauthenticated' })
+    const currentOperation = ++operation.current
+    let token = csrfToken
+    const retryingLogout = state.kind === 'logout-error'
+    setState({ kind: 'logging-out' })
 
     try {
+      if (retryingLogout) {
+        const session = await client.session()
+        if (operation.current !== currentOperation) return
+        token = session.csrf_token
+        setCsrfToken(token)
+        if (!session.authenticated) {
+          setState({ kind: 'unauthenticated' })
+          return
+        }
+      }
       await client.logout(token)
+      if (operation.current === currentOperation) restartSession()
     } catch {
-      // The local authenticated view stays cleared even if the request fails.
+      if (operation.current === currentOperation) setState({ kind: 'logout-error' })
     }
+  }
+
+  if (state.kind === 'logging-out') {
+    return <LoadingState message="Signing out…" />
+  }
+
+  if (state.kind === 'logout-error' || state.kind === 'bootstrap-error') {
+    const logoutFailed = state.kind === 'logout-error'
+    return (
+      <main className="error-page">
+        <section className="error-panel">
+          <h1>Remote org chart</h1>
+          <p role="alert">{logoutFailed
+            ? 'Sign-out could not be confirmed. Your session may still be active.'
+            : 'Your session could not be checked. Please try again.'}</p>
+          <button type="button" onClick={logoutFailed ? () => void logout() : restartSession}>
+            {logoutFailed ? 'Retry sign out' : 'Retry'}
+          </button>
+        </section>
+      </main>
+    )
   }
 
   if (state.kind === 'booting') {

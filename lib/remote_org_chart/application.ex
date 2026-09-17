@@ -12,6 +12,7 @@ defmodule RemoteOrgChart.Application do
       RemoteOrgChartWeb.Telemetry,
       # Start the PubSub system
       {Phoenix.PubSub, name: RemoteOrgChart.PubSub},
+      {Task.Supervisor, name: RemoteOrgChart.FetchSupervisor},
       # Cache one complete, normalized organization chart in memory.
       {RemoteOrgChart.RemoteCache,
        fetcher: &RemoteOrgChart.Remote.fetch_chart/0,

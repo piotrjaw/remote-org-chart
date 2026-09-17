@@ -151,7 +151,7 @@ defmodule RemoteOrgChart.RemoteCacheTest do
           {:ok, chart("version-1")}
 
         1 ->
-          send(test_process, :refresh_started)
+          send(test_process, {:refresh_started, self()})
           receive do: (:continue_refresh -> {:ok, chart("version-2")})
       end
     end
@@ -166,12 +166,12 @@ defmodule RemoteOrgChart.RemoteCacheTest do
     Agent.update(clock, fn _current -> now(1_000) end)
 
     refresh = Task.async(fn -> RemoteCache.get(cache) end)
-    assert_receive :refresh_started
+    assert_receive {:refresh_started, worker}
 
     invalidation = Task.async(fn -> RemoteCache.invalidate(cache) end)
     assert {:ok, :ok} = Task.yield(invalidation, 100)
 
-    send(cache, :continue_refresh)
+    send(worker, :continue_refresh)
     assert {:ok, {:ok, _refreshed}} = Task.yield(refresh, 1_000)
   end
 
@@ -333,6 +333,96 @@ defmodule RemoteOrgChart.RemoteCacheTest do
 
   test "runs as a named child of the application supervisor" do
     assert is_pid(Process.whereis(RemoteCache))
+  end
+
+  test "a fetch lasting longer than five seconds returns its result" do
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         ttl_ms: 300_000,
+         fetcher: fn ->
+           Process.sleep(5_100)
+           {:ok, chart("slow")}
+         end}
+      )
+
+    assert {:ok, result} = RemoteCache.get(cache)
+    assert hd(result.chart.roots).id == "root-slow"
+  end
+
+  test "the overall fetch deadline returns a temporary error and terminates the worker" do
+    parent = self()
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         ttl_ms: 300_000,
+         fetch_timeout_ms: 50,
+         fetcher: fn ->
+           send(parent, {:worker, self()})
+           Process.sleep(:infinity)
+         end}
+      )
+
+    assert {:error, %Error{kind: :temporary}} = RemoteCache.get(cache)
+    assert_receive {:worker, worker}
+    refute Process.alive?(worker)
+    assert Process.alive?(cache)
+  end
+
+  test "Retry-After is measured from failure completion, including with an empty cache" do
+    clock = start_agent(fn -> now(0) end)
+    calls = start_agent(fn -> 0 end)
+
+    fetcher = fn ->
+      case Agent.get_and_update(calls, fn n -> {n, n + 1} end) do
+        0 ->
+          Agent.update(clock, fn _ -> now(10_000) end)
+          {:error, Error.temporary(:http, 120)}
+
+        _ ->
+          {:ok, chart("recovered")}
+      end
+    end
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil, ttl_ms: 300_000, now: fn -> Agent.get(clock, & &1) end, fetcher: fetcher}
+      )
+
+    assert {:error, %Error{kind: :temporary}} = RemoteCache.get(cache)
+    Agent.update(clock, fn _ -> now(129_999) end)
+    assert {:error, %Error{kind: :temporary}} = RemoteCache.get(cache)
+    Agent.update(clock, fn _ -> now(130_000) end)
+    assert {:ok, result} = RemoteCache.get(cache)
+    assert hd(result.chart.roots).id == "root-recovered"
+  end
+
+  test "a timed-out refresh preserves the last complete chart as stale" do
+    calls = start_agent(fn -> 0 end)
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         ttl_ms: 300_000,
+         fetch_timeout_ms: 50,
+         fetcher: fn ->
+           case Agent.get_and_update(calls, fn n -> {n, n + 1} end) do
+             0 -> {:ok, chart("saved")}
+             _ -> Process.sleep(:infinity)
+           end
+         end}
+      )
+
+    assert {:ok, original} = RemoteCache.get(cache)
+    assert {:ok, stale} = RemoteCache.refresh(cache)
+    assert stale.stale
+    assert stale.chart == original.chart
+    assert {:ok, ^stale} = RemoteCache.get(cache)
   end
 
   defp chart(version) do

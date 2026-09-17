@@ -132,6 +132,11 @@ redeploying. Existing cookies contain only an authenticated boolean, so rotate
 `SECRET_KEY_BASE` too when existing reviewer sessions must be invalidated immediately.
 Production cookies are Secure and therefore require HTTPS.
 
+Signing out immediately hides chart data, waits for server confirmation, and initializes
+a fresh session/CSRF token before enabling login again. If logout fails, the UI warns
+that the session may still be active and offers a retry. Failed session initialization
+also retries the session endpoint before allowing login or chart requests.
+
 Login rate limiting is intentionally outside this take-home scope. Add an edge or
 server-side limiter before using this credential model for a higher-risk public system.
 
@@ -147,8 +152,15 @@ server-side limiter before using this credential model for a higher-risk public 
   successful fetch.
 - Concurrent calls are serialized by the GenServer, preventing duplicate upstream
   refreshes on one instance.
+- Each full fetch runs in a supervised task with a 20-second deadline. Expiry stops
+  the task and returns stale data when available, otherwise a temporary error. Cache
+  callers wait at most 25 seconds and receive a temporary error on timeout. Reads
+  still queue behind a fetch; these deadlines bound waiting rather than implementing
+  background refresh while serving the old snapshot.
 - Timeouts, rate limits, and Remote `5xx` errors may return an existing snapshot marked
-  stale. After such a failure, ordinary reads wait 30 seconds before retrying Remote;
+  stale. After such a failure, ordinary reads wait at least 30 seconds before retrying
+  Remote, or longer when its accepted `Retry-After` asks for it (up to 300 seconds).
+  The cooldown starts when the attempt finishes and also applies to an empty cache;
   the Refresh button can still force an immediate attempt. Authentication and
   invalid-schema errors never use stale data.
 - Browser responses are always `Cache-Control: no-store`.

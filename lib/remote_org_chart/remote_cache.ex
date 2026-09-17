@@ -21,10 +21,17 @@ defmodule RemoteOrgChart.RemoteCache do
   end
 
   @spec get(GenServer.server()) :: {:ok, Result.t()} | {:error, Error.t()}
-  def get(server \\ __MODULE__), do: GenServer.call(server, :get)
+  def get(server \\ __MODULE__), do: call(server, :get)
 
   @spec refresh(GenServer.server()) :: {:ok, Result.t()} | {:error, Error.t()}
-  def refresh(server \\ __MODULE__), do: GenServer.call(server, :refresh)
+  def refresh(server \\ __MODULE__), do: call(server, :refresh)
+
+  defp call(server, operation) do
+    GenServer.call(server, operation, 25_000)
+  catch
+    :exit, {:timeout, _} -> {:error, Error.temporary(:cache)}
+    :exit, {:noproc, _} -> {:error, Error.temporary(:cache)}
+  end
 
   @spec invalidate(GenServer.server()) :: :ok
   def invalidate(server \\ __MODULE__), do: GenServer.cast(server, :invalidate)
@@ -37,6 +44,8 @@ defmodule RemoteOrgChart.RemoteCache do
        fetched_at_ms: nil,
        refresh_after_ms: nil,
        retry_after_ms: nil,
+       last_error: nil,
+       fetch_timeout_ms: Keyword.get(options, :fetch_timeout_ms, 20_000),
        ttl_ms: Keyword.fetch!(options, :ttl_ms),
        invalidation_debounce_ms: Keyword.get(options, :invalidation_debounce_ms, 2_000),
        retry_cooldown_ms: Keyword.get(options, :retry_cooldown_ms, 30_000),
@@ -51,7 +60,7 @@ defmodule RemoteOrgChart.RemoteCache do
 
     cond do
       retrying?(state, current_time.monotonic_ms) ->
-        {:reply, {:ok, %{state.value | stale: true}}, state}
+        {:reply, fallback(state, state.last_error), state}
 
       fresh?(state, current_time.monotonic_ms) ->
         {:reply, {:ok, %{state.value | stale: false}}, state}
@@ -84,8 +93,6 @@ defmodule RemoteOrgChart.RemoteCache do
     current_ms - state.fetched_at_ms < state.ttl_ms
   end
 
-  defp retrying?(%{value: nil}, _current_ms), do: false
-
   defp retrying?(%{retry_after_ms: retry_after_ms}, current_ms)
        when is_integer(retry_after_ms) do
     current_ms < retry_after_ms
@@ -94,7 +101,17 @@ defmodule RemoteOrgChart.RemoteCache do
   defp retrying?(_state, _current_ms), do: false
 
   defp fetch(state, current_time) do
-    case state.fetcher.() do
+    task = Task.Supervisor.async_nolink(RemoteOrgChart.FetchSupervisor, state.fetcher)
+    outcome = Task.yield(task, state.fetch_timeout_ms) || Task.shutdown(task, :brutal_kill)
+
+    result =
+      case outcome do
+        {:ok, result} -> result
+        nil -> {:error, Error.temporary(:cache)}
+        {:exit, _reason} -> {:error, %Error{kind: :internal, operation: :cache}}
+      end
+
+    case result do
       {:ok, chart} ->
         result = %Result{chart: chart, fetched_at: current_time.utc, stale: false}
 
@@ -103,19 +120,32 @@ defmodule RemoteOrgChart.RemoteCache do
           | value: result,
             fetched_at_ms: current_time.monotonic_ms,
             refresh_after_ms: nil,
-            retry_after_ms: nil
+            retry_after_ms: nil,
+            last_error: nil
         }
 
         {:reply, {:ok, result}, new_state}
 
-      {:error, %Error{kind: :temporary}} when not is_nil(state.value) ->
-        retry_after_ms = current_time.monotonic_ms + state.retry_cooldown_ms
-        {:reply, {:ok, %{state.value | stale: true}}, %{state | retry_after_ms: retry_after_ms}}
+      {:error, %Error{kind: :temporary} = error} ->
+        finished_ms = state.now.().monotonic_ms
+        cooldown_ms = max(state.retry_cooldown_ms, (error.retry_after || 0) * 1_000)
+
+        new_state = %{
+          state
+          | retry_after_ms: finished_ms + cooldown_ms,
+            refresh_after_ms: finished_ms,
+            last_error: error
+        }
+
+        {:reply, fallback(state, error), new_state}
 
       {:error, %Error{} = error} ->
         {:reply, {:error, error}, state}
     end
   end
+
+  defp fallback(%{value: nil}, error), do: {:error, error}
+  defp fallback(state, _error), do: {:ok, %{state.value | stale: true}}
 
   defp current_time do
     %{

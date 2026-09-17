@@ -95,6 +95,36 @@ defmodule RemoteOrgChartWeb.SessionControllerTest do
     end)
   end
 
+  test "a fresh bootstrap permits login after logout with real CSRF enforcement" do
+    bootstrap = get(build_conn(), "/api/session")
+
+    login =
+      bootstrap
+      |> recycle()
+      |> enable_csrf_protection()
+      |> put_req_header("x-csrf-token", json_response(bootstrap, 200)["csrf_token"])
+      |> post("/api/session", %{username: "reviewer", password: "test-password"})
+
+    logout =
+      login
+      |> recycle()
+      |> enable_csrf_protection()
+      |> put_req_header("x-csrf-token", json_response(login, 200)["csrf_token"])
+      |> delete("/api/session")
+
+    assert response(logout, 204) == ""
+    fresh = logout |> recycle() |> get("/api/session")
+
+    relogin =
+      fresh
+      |> recycle()
+      |> enable_csrf_protection()
+      |> put_req_header("x-csrf-token", json_response(fresh, 200)["csrf_token"])
+      |> post("/api/session", %{username: "reviewer", password: "test-password"})
+
+    assert %{"authenticated" => true} = json_response(relogin, 200)
+  end
+
   test "rejects state-changing session requests without a CSRF token", %{conn: conn} do
     assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
       conn

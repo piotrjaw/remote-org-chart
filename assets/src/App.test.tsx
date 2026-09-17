@@ -68,7 +68,7 @@ describe('App session flow', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('returns to login immediately when logout is still pending', async () => {
+  it('hides the chart and prevents login while logout is pending', async () => {
     const user = userEvent.setup()
     const logoutRequest = deferred<void>()
     const session = vi.fn().mockResolvedValue({
@@ -86,7 +86,79 @@ describe('App session flow', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Sign out' }))
 
-    expect(screen.getByLabelText('Username')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Username')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Signing out')
+  })
+
+  it('gets a fresh CSRF token before logging in again after logout', async () => {
+    const user = userEvent.setup()
+    const session = vi.fn()
+      .mockResolvedValueOnce({ authenticated: true, csrf_token: 'old' })
+      .mockResolvedValue({ authenticated: false, csrf_token: 'new' })
+    const login = vi.fn(async (_user, _password, token) => {
+      if (token !== 'new') throw new Error('Invalid CSRF')
+      return { authenticated: true, csrf_token: 'renewed' }
+    })
+    render(<App client={stubClient({ session, login })} />)
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }))
+    await user.type(await screen.findByLabelText('Username'), 'reviewer')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'View org chart' }))
+    expect(await screen.findByRole('heading', { name: 'Acme' })).toBeInTheDocument()
+  })
+
+  it('reports failed logout and lets the user retry it', async () => {
+    const user = userEvent.setup()
+    const session = vi.fn()
+      .mockResolvedValueOnce({ authenticated: true, csrf_token: 'old' })
+      .mockResolvedValue({ authenticated: false, csrf_token: 'new' })
+    const logout = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined)
+    render(<App client={stubClient({ session, logout })} />)
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign-out could not be confirmed')
+    expect(screen.queryByRole('heading', { name: 'Acme' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Retry sign out' }))
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument()
+  })
+
+  it('retries session initialization after bootstrap fails', async () => {
+    const user = userEvent.setup()
+    const session = vi.fn().mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({ authenticated: false, csrf_token: 'recovered' })
+    const login = vi.fn(async (_user, _password, token) => {
+      if (token !== 'recovered') throw new Error('Invalid CSRF')
+      return { authenticated: true, csrf_token: 'renewed' }
+    })
+    // After a successful login the chart is available; before it the server rejects reads.
+    let loggedIn = false
+    const guardedLogin = async (...args: Parameters<ApiClient['login']>) => {
+      const result = await login(...args); loggedIn = true; return result
+    }
+    render(<App client={stubClient({ session, login: guardedLogin, orgChart: async () => {
+      if (!loggedIn) throw new ApiRequestError(401, { code: 'authentication_required' })
+      return chart('Acme')
+    } })} />)
+    await user.click(await screen.findByRole('button', { name: 'Retry' }))
+    await user.type(await screen.findByLabelText('Username'), 'reviewer')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'View org chart' }))
+    expect(await screen.findByRole('heading', { name: 'Acme' })).toBeInTheDocument()
+  })
+
+  it('recovers logout when another tab rotated the CSRF token', async () => {
+    const user = userEvent.setup()
+    let authenticated = true
+    let reads = 0
+    const session = async () => ({ authenticated, csrf_token: reads++ === 0 ? 'old' : 'rotated' })
+    const logout = async (token: string) => {
+      if (token !== 'rotated') throw new ApiRequestError(403, { code: 'invalid_csrf' })
+      authenticated = false
+    }
+    render(<App client={stubClient({ session, logout })} />)
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }))
+    await user.click(await screen.findByRole('button', { name: 'Retry sign out' }))
+    expect(await screen.findByLabelText('Username')).toBeInTheDocument()
+    expect(authenticated).toBe(false)
   })
 
   it('keeps the current chart visible and disables only refresh while updating', async () => {
