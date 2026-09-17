@@ -227,6 +227,12 @@ full Remote seed needed to establish every relationship.
 `manager_employment_id` is authoritative. Manager names are display-only. The mapper
 keeps all employment statuses and models rather than silently filtering them.
 
+The backend disconnects reporting edges to archived managers and promotes those employees
+to roots, preserving each employee's own reports and original manager summary. The API
+marks these roots with `manager_archived: true`; the UI places them under “No reporting
+line” with a “Manager archived” label. This rule applies whether archived employees are
+shown or hidden. The archived checkbox only controls visibility, not these relationships.
+
 The hierarchy always terminates and keeps every valid unique employment visible:
 
 - `missing_id`: omit the unusable record;

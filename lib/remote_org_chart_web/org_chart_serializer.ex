@@ -33,6 +33,7 @@ defmodule RemoteOrgChartWeb.OrgChartSerializer do
       title: node.title,
       department: summary_to_map(node.department),
       manager: summary_to_map(node.manager),
+      manager_archived: node.manager_archived,
       status: node.status,
       employment_type: node.employment_type,
       employment_model: node.employment_model,

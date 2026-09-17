@@ -102,11 +102,15 @@ function PersonCardContents({
           </span>
         </span>
         {person.manager?.name && (
-          <span className="manager-line">Reports to {person.manager.name}</span>
+          <span className="manager-line">
+            {person.manager_archived ? 'Archived manager: ' : 'Reports to '}{person.manager.name}
+          </span>
         )}
         <span className="badges" aria-label="Employment details">
           {unassigned && (
-            <span className="assignment-state">No manager assigned</span>
+            <span className="assignment-state">
+              {person.manager_archived ? 'Manager archived' : 'No manager assigned'}
+            </span>
           )}
           {person.status && <span>{person.status}</span>}
           {person.employment_type && <span>{person.employment_type}</span>}

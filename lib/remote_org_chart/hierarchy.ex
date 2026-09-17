@@ -74,7 +74,7 @@ defmodule RemoteOrgChart.Hierarchy do
        )
        when is_binary(manager_id) do
     if Map.has_key?(people_by_id, manager_id) do
-      {:edge, manager_id}
+      if archived?(Map.fetch!(people_by_id, manager_id)), do: :root, else: {:edge, manager_id}
     else
       {:warning,
        %{
@@ -167,6 +167,7 @@ defmodule RemoteOrgChart.Hierarchy do
       title: person.title,
       department: person.department,
       manager: person.manager,
+      manager_archived: archived_manager?(person, people_by_id),
       status: person.status,
       employment_type: person.employment_type,
       employment_model: person.employment_model,
@@ -177,4 +178,15 @@ defmodule RemoteOrgChart.Hierarchy do
   defp sort_nodes(nodes) do
     Enum.sort_by(nodes, &{String.downcase(&1.name), &1.id})
   end
+
+  defp archived_manager?(%Person{manager: %{id: id}}, people_by_id) do
+    archived?(Map.get(people_by_id, id))
+  end
+
+  defp archived_manager?(_person, _people_by_id), do: false
+
+  defp archived?(%Person{status: status}) when is_binary(status),
+    do: String.downcase(String.trim(status)) == "archived"
+
+  defp archived?(_person), do: false
 end

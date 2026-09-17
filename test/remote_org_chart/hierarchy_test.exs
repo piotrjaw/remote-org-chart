@@ -5,6 +5,36 @@ defmodule RemoteOrgChart.HierarchyTest do
   alias RemoteOrgChart.Hierarchy
   alias RemoteOrgChart.Remote.Mapper
 
+  test "reports of archived managers become roots while keeping their own reports" do
+    identity = Fixture.read_json!("identity_current.json")
+
+    people = [
+      %{"id" => "archived", "full_name" => "Archived Manager", "status" => " ARCHIVED "},
+      %{"id" => "active", "full_name" => "Active Manager", "manager_employment_id" => "archived"},
+      %{"id" => "child", "full_name" => "Active Report", "manager_employment_id" => "active"}
+    ]
+
+    assert {:ok, snapshot} = Mapper.map(identity, people)
+    chart = Hierarchy.build(snapshot)
+    assert chart.root_count == 2
+    assert chart.employee_count == 3
+    active = Enum.find(chart.roots, &(&1.id == "active"))
+    assert active.manager_archived
+    assert active.manager.id == "archived"
+    assert Enum.map(active.reports, & &1.id) == ["child"]
+    refute hd(active.reports).manager_archived
+    assert Enum.find(chart.roots, &(&1.id == "archived")).reports == []
+
+    result = %RemoteOrgChart.RemoteCache.Result{
+      chart: chart,
+      fetched_at: DateTime.utc_now(),
+      stale: false
+    }
+
+    serialized = RemoteOrgChartWeb.OrgChartSerializer.to_map(result)
+    assert Enum.find(serialized.roots, &(&1.id == "active")).manager_archived
+  end
+
   test "builds every complex fixture person after resolving managers across pages" do
     identity = Fixture.read_json!("identity_current.json")
     employments = Fixture.complex_employment_pages!() |> List.flatten()

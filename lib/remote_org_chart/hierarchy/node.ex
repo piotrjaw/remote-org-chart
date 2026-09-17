@@ -13,7 +13,8 @@ defmodule RemoteOrgChart.Hierarchy.Node do
     :status,
     :employment_type,
     :employment_model,
-    :reports
+    :reports,
+    manager_archived: false
   ]
 
   @type t :: %__MODULE__{
@@ -22,6 +23,7 @@ defmodule RemoteOrgChart.Hierarchy.Node do
           title: String.t() | nil,
           department: map() | nil,
           manager: map() | nil,
+          manager_archived: boolean(),
           status: String.t() | nil,
           employment_type: String.t() | nil,
           employment_model: String.t() | nil,

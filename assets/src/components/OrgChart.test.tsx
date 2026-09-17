@@ -184,12 +184,13 @@ describe('OrgChart', () => {
     const user = userEvent.setup()
     const activeReport = person('active-report', 'Avery Active', [], {
       manager: { id: 'archived-manager', name: 'Morgan Archived' },
+      manager_archived: true,
       status: 'active',
     })
     const archivedManager = person(
       'archived-manager',
       'Morgan Archived',
-      [activeReport],
+      [],
       {
         manager: { id: 'leader', name: 'Lee Leader' },
         status: 'ARCHIVED',
@@ -199,7 +200,7 @@ describe('OrgChart', () => {
       status: 'active',
     })
 
-    render(<OrgChart chart={chart([leader])} {...actions()} />)
+    render(<OrgChart chart={chart([leader, activeReport])} {...actions()} />)
 
     const archivedToggle = screen.getByRole('checkbox', {
       name: 'Show archived employees',
@@ -207,6 +208,8 @@ describe('OrgChart', () => {
     const summary = screen.getByLabelText('Organization summary')
 
     expect(archivedToggle).not.toBeChecked()
+    const unassignedGroup = screen.getByText('No reporting line').closest('details')!
+    expect(within(unassignedGroup).getByText('Avery Active')).toBeInTheDocument()
     expect(screen.queryByText('Morgan Archived')).not.toBeInTheDocument()
     expect(screen.getByText('Avery Active')).toBeInTheDocument()
     expect(within(summary).getByText('2 employees')).toBeInTheDocument()
@@ -215,9 +218,29 @@ describe('OrgChart', () => {
     await user.click(archivedToggle)
 
     expect(archivedToggle).toBeChecked()
+    expect(within(unassignedGroup).getByText('Avery Active')).toBeInTheDocument()
     expect(screen.getByText('Morgan Archived')).toBeInTheDocument()
     expect(within(summary).getByText('3 employees')).toBeInTheDocument()
-    expect(within(summary).getByText('1 reporting root')).toBeInTheDocument()
+    expect(within(summary).getByText('2 reporting roots')).toBeInTheDocument()
+  })
+
+  it('keeps the team together when its manager reports to an archived employee', () => {
+    const report = person('report', 'Riley Report', [], {
+      manager: { id: 'active-manager', name: 'Avery Active' },
+    })
+    const activeManager = person('active-manager', 'Avery Active', [report], {
+      manager: { id: 'archived', name: 'Morgan Archived' },
+      manager_archived: true,
+    })
+    const archived = person('archived', 'Morgan Archived', [], { status: 'archived' })
+    render(<OrgChart chart={chart([archived, activeManager])} {...actions()} />)
+    const group = screen.getByText('No reporting line').closest('details')!
+    expect(within(group).getByText('Avery Active')).toBeInTheDocument()
+    expect(within(group).getByText('Riley Report')).toBeInTheDocument()
+    expect(within(group).getByText('2 employees')).toBeInTheDocument()
+    expect(within(group).getByText('Manager archived')).toBeInTheDocument()
+    const team = within(group).getByText('Avery Active').closest('details')!
+    expect(within(team).getByText('Riley Report')).toBeInTheDocument()
   })
 
   it('renders every person in a recursive, accessible three-level outline', async () => {

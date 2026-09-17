@@ -114,7 +114,7 @@ function OrgChart({
               <summary>
                 <span className="chart-group__title">No reporting line</span>
                 <span className="chart-group__count">
-                  {pluralize(unassignedRoots.length, 'employee')}
+                  {pluralize(countPeople(unassignedRoots), 'employee')}
                 </span>
               </summary>
               <div className="chart-group__body">
@@ -141,27 +141,15 @@ function OrgChart({
 }
 
 function withoutArchivedEmployees(roots: Person[]): Person[] {
-  const visibleRoots: Person[] = []
-
-  function addVisible(person: Person, siblings: Person[]) {
-    if (person.status?.trim().toLocaleLowerCase() === 'archived') {
-      person.reports.forEach((report) => addVisible(report, visibleRoots))
-      return
-    }
-
-    const reports: Person[] = []
-    siblings.push({ ...person, reports })
-    person.reports.forEach((report) => addVisible(report, reports))
-  }
-
-  roots.forEach((root) => addVisible(root, visibleRoots))
-  return visibleRoots
+  return roots
+    .filter((person) => person.status?.trim().toLocaleLowerCase() !== 'archived')
+    .map((person) => ({ ...person, reports: withoutArchivedEmployees(person.reports) }))
 }
 
 function partitionRoots(roots: Person[]) {
   return roots.reduce(
     (groups, root) => {
-      if (root.manager === null && root.reports.length === 0) {
+      if (root.manager_archived || (root.manager === null && root.reports.length === 0)) {
         groups.unassignedRoots.push(root)
       } else {
         groups.reportingRoots.push(root)

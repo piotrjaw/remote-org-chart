@@ -15,6 +15,7 @@ export interface PersonNode {
   title: string | null
   department: { id: string | null; name: string | null } | null
   manager: { id: string | null; name: string | null } | null
+  manager_archived?: boolean
   status: string | null
   employment_type: string | null
   employment_model: string | null
