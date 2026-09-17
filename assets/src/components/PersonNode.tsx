@@ -16,13 +16,16 @@ function PersonNode({
   const reportCount = person.reports.length
   const totalReportCount = reportTotals.get(person) ?? reportCount
   const reportListId = useId()
+  const archivedClass = person.status?.trim().toLocaleLowerCase() === 'archived'
+    ? ' person-card--archived'
+    : ''
 
   return (
     <li className="person-branch">
       {reportCount > 0 ? (
         <details className="person-disclosure">
           <summary
-            className="person-card person-card--parent"
+            className={`person-card person-card--parent${archivedClass}`}
             aria-controls={reportListId}
           >
             <PersonCardContents
@@ -48,7 +51,7 @@ function PersonNode({
         </details>
       ) : (
         <article
-          className={`person-card${unassigned ? ' person-card--unassigned' : ''}`}
+          className={`person-card${unassigned ? ' person-card--unassigned' : ''}${archivedClass}`}
           aria-label={`Employee: ${person.name}`}
         >
           <PersonCardContents

@@ -493,6 +493,10 @@ input:focus-visible {
   box-shadow: var(--shadow-card);
 }
 
+.person-card--archived {
+  opacity: 0.7;
+}
+
 .person-card--parent {
   grid-template-columns: auto auto minmax(0, 1fr);
   cursor: pointer;
