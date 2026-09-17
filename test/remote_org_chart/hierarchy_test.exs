@@ -75,6 +75,117 @@ defmodule RemoteOrgChart.HierarchyTest do
            )
   end
 
+  test "only an archived manager's direct reports detach, preserving both remaining teams" do
+    chart =
+      build_people([
+        employment("leader", nil),
+        employment("archived", "leader", "archived"),
+        employment("sibling", "leader"),
+        employment("team-lead", "archived"),
+        employment("other-report", "archived"),
+        employment("team-member", "team-lead")
+      ])
+
+    assert Enum.map(chart.roots, & &1.id) == ["leader", "other-report", "team-lead"]
+    assert Enum.map(find_node(chart.roots, "leader").reports, & &1.id) == ["archived", "sibling"]
+    assert Enum.map(find_node(chart.roots, "team-lead").reports, & &1.id) == ["team-member"]
+    assert find_node(chart.roots, "archived").reports == []
+    assert find_node(chart.roots, "other-report").manager_archived
+    assert find_node(chart.roots, "team-lead").manager_archived
+    refute find_node(chart.roots, "team-member").manager_archived
+    assert chart.employee_count == 6
+    assert chart.root_count == 3
+    assert chart.warnings == []
+  end
+
+  test "consecutive archived managers each release their direct reports" do
+    chart =
+      build_people([
+        employment("first", nil, "archived"),
+        employment("second", "first", "archived"),
+        employment("third", "second"),
+        employment("fourth", "third")
+      ])
+
+    assert Enum.map(chart.roots, & &1.id) == ["first", "second", "third"]
+    assert find_node(chart.roots, "first").reports == []
+    assert find_node(chart.roots, "second").reports == []
+    assert find_node(chart.roots, "second").manager_archived
+    assert find_node(chart.roots, "third").manager_archived
+    assert Enum.map(find_node(chart.roots, "third").reports, & &1.id) == ["fourth"]
+    assert chart.employee_count == 4
+  end
+
+  test "archived classification is case insensitive and does not match other statuses" do
+    for status <- ["archived", "ARCHIVED", " Archived "] do
+      chart = build_people([employment("manager", nil, status), employment("report", "manager")])
+      assert chart.root_count == 2
+      assert find_node(chart.roots, "report").manager_archived
+    end
+
+    for status <- [nil, "", "active", "inactive", "offboarding", "archived_pending"] do
+      chart = build_people([employment("manager", nil, status), employment("report", "manager")])
+      assert chart.root_count == 1
+      assert Enum.map(hd(chart.roots).reports, & &1.id) == ["report"]
+      refute find_node(chart.roots, "report").manager_archived
+    end
+  end
+
+  test "missing and name-only managers are not classified as archived" do
+    chart =
+      build_people([
+        employment("archived", nil, "archived"),
+        employment("missing", "absent"),
+        Map.put(employment("external", nil), "manager", "archived"),
+        employment("unassigned", nil)
+      ])
+
+    assert chart.root_count == 4
+    assert Enum.all?(chart.roots, &(not &1.manager_archived))
+
+    assert Enum.map(chart.warnings, & &1.code) |> Enum.sort() == [
+             "external_manager",
+             "unresolved_manager"
+           ]
+  end
+
+  test "removing an archived-manager edge resolves a cycle without losing employees" do
+    chart =
+      build_people([
+        employment("archived", "active", "archived"),
+        employment("active", "archived"),
+        employment("report", "active")
+      ])
+
+    assert Enum.map(chart.roots, & &1.id) == ["active"]
+    assert hd(chart.roots).manager_archived
+    assert Enum.map(hd(chart.roots).reports, & &1.id) == ["archived", "report"]
+    assert find_node(chart.roots, "archived").reports == []
+    assert chart.warnings == []
+    assert chart.employee_count == 3
+  end
+
+  test "all three-person graphs preserve every employee once and never nest under archived managers" do
+    ids = ["a", "b", "c"]
+    managers = [nil | ids]
+
+    for ma <- managers,
+        mb <- managers,
+        mc <- managers,
+        sa <- ["active", "archived"],
+        sb <- ["active", "archived"],
+        sc <- ["active", "archived"] do
+      people = [employment("a", ma, sa), employment("b", mb, sb), employment("c", mc, sc)]
+      chart = build_people(people)
+      nodes = flatten(chart.roots)
+      assert Enum.sort(Enum.map(nodes, & &1.id)) == ids
+      assert chart.employee_count == 3
+      assert chart.root_count == length(chart.roots)
+      assert Enum.all?(nodes, fn node -> node.status != "archived" or node.reports == [] end)
+      assert build_people(Enum.reverse(people)) == chart
+    end
+  end
+
   test "deduplicates and repairs self-references and cycles deterministically" do
     identity = Fixture.read_json!("identity_current.json")
     pathological = Fixture.read_json!("employments_bulk_pathological.json")
@@ -160,6 +271,15 @@ defmodule RemoteOrgChart.HierarchyTest do
 
   defp flatten(nodes) do
     Enum.flat_map(nodes, fn node -> [node | flatten(node.reports)] end)
+  end
+
+  defp employment(id, manager_id, status \\ "active") do
+    %{"id" => id, "full_name" => id, "manager_employment_id" => manager_id, "status" => status}
+  end
+
+  defp build_people(people) do
+    assert {:ok, snapshot} = Mapper.map(Fixture.read_json!("identity_current.json"), people)
+    Hierarchy.build(snapshot)
   end
 
   defp find_node(nodes, id) do
