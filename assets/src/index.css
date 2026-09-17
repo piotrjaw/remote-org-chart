@@ -484,7 +484,7 @@ input:focus-visible {
 
 .person-card {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 0.5rem auto minmax(0, 1fr);
   gap: 0.75rem;
   padding: 0.85rem 1rem;
   border: 1px solid var(--line);
@@ -498,7 +498,6 @@ input:focus-visible {
 }
 
 .person-card--parent {
-  grid-template-columns: auto auto minmax(0, 1fr);
   cursor: pointer;
   list-style: none;
   transition:
@@ -555,6 +554,7 @@ input:focus-visible {
 }
 
 .person-avatar {
+  grid-column: 2;
   display: grid;
   width: 2.25rem;
   height: 2.25rem;
@@ -575,6 +575,7 @@ input:focus-visible {
 }
 
 .person-card__content {
+  grid-column: 3;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
@@ -748,14 +749,6 @@ input:focus-visible {
 
   .report-list > .person-branch::before {
     display: none;
-  }
-
-  .person-card {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .person-card--parent {
-    grid-template-columns: auto auto minmax(0, 1fr);
   }
 
   .person-card__content {
