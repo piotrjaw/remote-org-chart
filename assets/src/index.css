@@ -543,6 +543,17 @@ input:focus-visible {
   background: var(--unassigned-wash);
 }
 
+.person-card.person-card--archived {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0,
+    transparent 9px,
+    color-mix(in srgb, var(--ink) 8%, transparent) 9px,
+    color-mix(in srgb, var(--ink) 8%, transparent) 11px
+  );
+  border-style: dashed;
+}
+
 .person-avatar {
   display: grid;
   width: 2.25rem;
@@ -623,6 +634,11 @@ input:focus-visible {
   color: var(--structure-ink);
   background: var(--structure-wash);
   font-size: 0.7rem;
+}
+
+.person-card--archived .employment-status {
+  border-style: dashed;
+  font-weight: 700;
 }
 
 .badges .assignment-state {

@@ -112,7 +112,7 @@ function PersonCardContents({
               {person.manager_archived ? 'Manager archived' : 'No manager assigned'}
             </span>
           )}
-          {person.status && <span>{person.status}</span>}
+          {person.status && <span className="employment-status">{person.status}</span>}
           {person.employment_type && <span>{person.employment_type}</span>}
           {person.employment_model && <span>{person.employment_model}</span>}
         </span>
