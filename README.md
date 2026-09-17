@@ -148,6 +148,18 @@ a fresh session/CSRF token before enabling login again. If logout fails, the UI 
 that the session may still be active and offers a retry. Failed session initialization
 also retries the session endpoint before allowing login or chart requests.
 
+If another tab or cookie expiry invalidates a CSRF token, login obtains a fresh token
+and retries once after a `403` rejection. Refresh instead rechecks the session and
+reloads the chart or returns to login. Repeated rejection does not loop. Only actual
+invalid-credential errors are labeled as an incorrect username/password; network,
+timeout, and server failures show a retry message.
+
+Browser API requests have a 30-second deadline covering both response headers and body
+reading. Expiry aborts the request and releases the pending UI so the user can retry.
+A timeout does not prove the server cancelled the operation, so mutations are not
+automatically retried on timeout; logout's existing session check resolves an uncertain
+outcome before retrying.
+
 Login allows ten attempts per 60-second window for the entire shared account, including
 successful and malformed credential submissions. Excess attempts return `429` with
 `Retry-After`; the form asks the reviewer to wait. The budget is atomic and does not
@@ -182,7 +194,11 @@ for a larger deployment; do not simply raise the budget to address hostile traff
   The cooldown starts when the attempt finishes and also applies to an empty cache;
   the Refresh button cannot bypass it. Authentication and invalid-schema errors never
   use stale data as the result of a failed fetch.
-- Browser responses are always `Cache-Control: no-store`.
+- Authentication, invalid-response, and internal failures are also held for 30 seconds
+  after completion. Reads and manual refreshes return the same safe error during that
+  window without contacting Remote or serving the old snapshot as a fallback. The next
+  eligible request retries, allowing recovery after a configuration or upstream fix.
+- Chart and session API responses are always `Cache-Control: no-store`.
 
 `POST /api/webhooks/remote` is public so Remote can reach it, but it accepts an event
 only when `X-Remote-Signature` matches the HMAC-SHA256 of the exact raw request body,

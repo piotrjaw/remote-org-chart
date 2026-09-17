@@ -166,12 +166,23 @@ defmodule RemoteOrgChart.RemoteCache do
         {:reply, fallback(state, error), new_state}
 
       {:error, %Error{} = error} ->
-        {:reply, {:error, error}, state}
+        # Persistent failures must back off too, without masking them with old data.
+        finished_ms = state.now.().monotonic_ms
+
+        updated = %{
+          state
+          | last_error: error,
+            refresh_after_ms: finished_ms,
+            retry_after_ms: finished_ms + state.retry_cooldown_ms
+        }
+
+        {:reply, {:error, error}, updated}
     end
   end
 
   defp fallback(%{value: nil}, error), do: {:error, error}
-  defp fallback(state, _error), do: {:ok, %{state.value | stale: true}}
+  defp fallback(state, %Error{kind: :temporary}), do: {:ok, %{state.value | stale: true}}
+  defp fallback(_state, error), do: {:error, error}
 
   defp current_time do
     %{

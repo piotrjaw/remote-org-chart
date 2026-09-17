@@ -88,7 +88,18 @@ function App({ client = defaultClient }: AppProps) {
 
   async function login(username: string, password: string) {
     const currentOperation = ++operation.current
-    const session = await client.login(username, password, csrfToken)
+    let session
+    try {
+      session = await client.login(username, password, csrfToken)
+    } catch (error) {
+      if (!isCsrfRejected(error)) throw error
+      // Another tab or an expired cookie can invalidate the token held in state.
+      // Retry once only after a confirmed rejection, never after an ambiguous timeout.
+      const fresh = await client.session()
+      if (operation.current !== currentOperation) return
+      setCsrfToken(fresh.csrf_token)
+      session = await client.login(username, password, fresh.csrf_token)
+    }
     if (operation.current !== currentOperation) return
 
     setCsrfToken(session.csrf_token)
@@ -149,7 +160,9 @@ function App({ client = defaultClient }: AppProps) {
     } catch (error) {
       if (operation.current !== currentOperation) return
 
-      if (isAuthenticationRequired(error)) {
+      if (isCsrfRejected(error)) {
+        restartSession()
+      } else if (isAuthenticationRequired(error)) {
         setState({ kind: 'unauthenticated' })
       } else {
         setState({
@@ -297,6 +310,8 @@ function errorPresentation(error: unknown) {
     remote_authentication_failed:
       'Remote API authentication failed. Check the server configuration.',
     internal_error: 'Something went wrong while loading the organization.',
+    request_timeout: 'The request took too long. Please try again.',
+    network_error: 'Unable to connect. Check your connection and try again.',
   }
 
   return {
@@ -304,6 +319,11 @@ function errorPresentation(error: unknown) {
       messages[code] ?? 'Something went wrong while loading the organization.',
     requestId,
   }
+}
+
+function isCsrfRejected(error: unknown) {
+  // These session-protected endpoints use 403 for CSRF rejection.
+  return error instanceof ApiRequestError && error.status === 403
 }
 
 function isAuthenticationRequired(error: unknown) {

@@ -297,6 +297,52 @@ describe('App session flow', () => {
       screen.queryByRole('heading', { name: 'Acme' }),
     ).not.toBeInTheDocument()
   })
+  it('recovers a rejected login CSRF token and retries once', async () => {
+    const user = userEvent.setup()
+    const session = vi.fn()
+      .mockResolvedValueOnce({ authenticated: false, csrf_token: 'old' })
+      .mockResolvedValue({ authenticated: false, csrf_token: 'fresh' })
+    const login = vi.fn()
+      .mockRejectedValueOnce(new ApiRequestError(403, { code: 'internal_error' }))
+      .mockResolvedValue({ authenticated: true, csrf_token: 'renewed' })
+    render(<App client={stubClient({ session, login })} />)
+    await user.type(await screen.findByLabelText('Username'), 'reviewer')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'View org chart' }))
+    expect(await screen.findByRole('heading', { name: 'Acme' })).toBeInTheDocument()
+    expect(login).toHaveBeenNthCalledWith(2, 'reviewer', 'secret', 'fresh')
+    expect(login).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not loop when login CSRF rejection persists', async () => {
+    const user = userEvent.setup()
+    const login = vi.fn().mockRejectedValue(new ApiRequestError(403, { code: 'internal_error' }))
+    render(<App client={stubClient({ login })} />)
+    await user.type(await screen.findByLabelText('Username'), 'reviewer')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'View org chart' }))
+    expect(await screen.findByText('Unable to sign in. Please try again.')).toBeInTheDocument()
+    expect(login).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([true, false])('rechecks the session after refresh CSRF rejection (authenticated=%s)', async (authenticated) => {
+    const user = userEvent.setup()
+    const session = vi.fn()
+      .mockResolvedValueOnce({ authenticated: true, csrf_token: 'old' })
+      .mockResolvedValue({ authenticated, csrf_token: 'fresh' })
+    const refresh = vi.fn().mockRejectedValue(new ApiRequestError(403, { code: 'internal_error' }))
+    render(<App client={stubClient({ session, refresh })} />)
+    await user.click(await screen.findByRole('button', { name: 'Refresh data' }))
+    if (authenticated) {
+      expect(await screen.findByRole('button', { name: 'Refresh data' })).toBeEnabled()
+    } else {
+      expect(await screen.findByLabelText('Username')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Acme' })).not.toBeInTheDocument()
+    }
+    expect(session).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
 })
 
 function stubClient(overrides: Partial<ApiClient> = {}): ApiClient {

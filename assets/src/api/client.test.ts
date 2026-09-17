@@ -110,6 +110,28 @@ describe('createApiClient', () => {
       expect(String(error)).not.toContain('private proxy failure')
     }
   })
+  it.each(['headers', 'body'])('times out stalled %s and aborts the request', async (stage) => {
+    vi.useFakeTimers()
+    try {
+      const pending = new Promise<never>(() => {})
+      const fetchMock = vi.fn().mockImplementation(() => stage === 'headers'
+        ? pending : Promise.resolve({ ok: true, status: 200, json: () => pending }))
+      const client = createApiClient(fetchMock as typeof fetch, 100)
+      const result = expect(client.session()).rejects.toMatchObject({ code: 'request_timeout' })
+      await vi.advanceTimersByTimeAsync(100)
+      await result
+      expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('classifies network failures without exposing their details', async () => {
+    const client = createApiClient(vi.fn().mockRejectedValue(new TypeError('private detail')))
+    await expect(client.session()).rejects.toMatchObject({ code: 'network_error', status: 0 })
+  })
+
 })
 
 function emptyChart() {

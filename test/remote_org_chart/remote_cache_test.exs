@@ -280,11 +280,10 @@ defmodule RemoteOrgChart.RemoteCacheTest do
           id: {RemoteCache, make_ref()}
         )
 
-      assert {:ok, fresh} = RemoteCache.get(cache)
+      assert {:ok, _fresh} = RemoteCache.get(cache)
       assert {:error, ^expected_error} = RemoteCache.refresh(cache)
-      assert {:ok, still_fresh} = RemoteCache.get(cache)
-      assert still_fresh.chart == fresh.chart
-      refute still_fresh.stale
+      assert {:error, ^expected_error} = RemoteCache.get(cache)
+      assert {:error, ^expected_error} = RemoteCache.refresh(cache)
     end)
   end
 
@@ -500,6 +499,66 @@ defmodule RemoteOrgChart.RemoteCacheTest do
     assert {:ok, latest} = RemoteCache.get(cache)
     assert hd(latest.chart.roots).id == "root-new"
     assert {:ok, ^latest} = RemoteCache.refresh(cache)
+  end
+
+  test "persistent errors back off reads and refreshes, then recover after cooldown" do
+    for error <- [
+          Error.authentication(:http),
+          Error.invalid_response(:http),
+          %Error{kind: :internal}
+        ] do
+      clock = start_agent(fn -> now(0) end)
+      calls = start_agent(fn -> 0 end)
+
+      cache =
+        start_supervised!(
+          {RemoteCache,
+           name: nil,
+           ttl_ms: 300_000,
+           now: fn -> Agent.get(clock, & &1) end,
+           fetcher: fn ->
+             case Agent.get_and_update(calls, fn n -> {n, n + 1} end) do
+               0 -> {:error, error}
+               _ -> {:ok, chart("recovered")}
+             end
+           end},
+          id: {RemoteCache, make_ref()}
+        )
+
+      for _ <- 1..5 do
+        assert {:error, ^error} = RemoteCache.get(cache)
+        assert {:error, ^error} = RemoteCache.refresh(cache)
+      end
+
+      assert Agent.get(calls, & &1) == 1
+      Agent.update(clock, fn _ -> now(30_000) end)
+      assert {:ok, result} = RemoteCache.get(cache)
+      assert hd(result.chart.roots).id == "root-recovered"
+      assert Agent.get(calls, & &1) == 2
+    end
+  end
+
+  test "persistent failure invalidates an existing snapshot and retries after cooldown" do
+    clock = start_agent(fn -> now(0) end)
+    error = Error.authentication(:http)
+    responses = start_agent(fn -> [{:ok, chart("old")}, {:error, error}, {:ok, chart("new")}] end)
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         ttl_ms: 300_000,
+         now: fn -> Agent.get(clock, & &1) end,
+         fetcher: fn -> Agent.get_and_update(responses, fn [head | tail] -> {head, tail} end) end}
+      )
+
+    assert {:ok, _} = RemoteCache.get(cache)
+    assert {:error, ^error} = RemoteCache.refresh(cache)
+    Agent.update(clock, fn _ -> now(29_999) end)
+    assert {:error, ^error} = RemoteCache.get(cache)
+    Agent.update(clock, fn _ -> now(30_000) end)
+    assert {:ok, result} = RemoteCache.get(cache)
+    assert hd(result.chart.roots).id == "root-new"
   end
 
   defp chart(version) do

@@ -52,7 +52,7 @@ describe('LoginForm', () => {
 
   it('shows one generic error and clears the password after rejection', async () => {
     const user = userEvent.setup()
-    const onLogin = vi.fn().mockRejectedValue(new Error('private detail'))
+    const onLogin = vi.fn().mockRejectedValue(new ApiRequestError(401, { code: 'invalid_credentials' }))
     render(<LoginForm onLogin={onLogin} />)
 
     await user.type(screen.getByLabelText('Username'), 'reviewer')
@@ -73,6 +73,21 @@ describe('LoginForm', () => {
     await user.click(screen.getByRole('button', { name: 'View org chart' }))
     expect(await screen.findByText('Too many sign-in attempts. Please wait a minute and try again.')).toBeInTheDocument()
     expect(screen.getByLabelText('Password')).toHaveValue('')
+  })
+
+  it.each([
+    new TypeError('private detail'),
+    new ApiRequestError(503, { code: 'session_unavailable' }),
+    new ApiRequestError(0, { code: 'request_timeout' }),
+  ])('shows a retry message for operational failure %s', async (error) => {
+    const user = userEvent.setup()
+    render(<LoginForm onLogin={vi.fn().mockRejectedValue(error)} />)
+    await user.type(screen.getByLabelText('Username'), 'reviewer')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'View org chart' }))
+    expect(await screen.findByText('Unable to sign in. Please try again.')).toBeInTheDocument()
+    expect(screen.queryByText('The username or password is incorrect.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View org chart' })).toBeEnabled()
   })
 
 })

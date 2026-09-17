@@ -22,7 +22,9 @@ function LoginForm({ onLogin }: LoginFormProps) {
       setPassword('')
       setError(error instanceof ApiRequestError && error.status === 429
         ? 'Too many sign-in attempts. Please wait a minute and try again.'
-        : 'The username or password is incorrect.')
+        : error instanceof ApiRequestError && error.code === 'invalid_credentials'
+          ? 'The username or password is incorrect.'
+          : 'Unable to sign in. Please try again.')
     } finally {
       setPending(false)
     }
