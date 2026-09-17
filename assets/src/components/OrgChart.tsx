@@ -118,6 +118,10 @@ function OrgChart({
                 </span>
               </summary>
               <div className="chart-group__body">
+                <p className="reporting-line-note">
+                  Each group starts with an employee who has no assigned manager or whose manager is archived.
+                  Their direct reports stay grouped with them.
+                </p>
                 <ul
                   className="org-tree"
                   aria-label="Employees without a reporting line"

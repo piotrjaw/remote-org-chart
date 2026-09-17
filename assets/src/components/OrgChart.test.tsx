@@ -172,6 +172,7 @@ describe('OrgChart', () => {
 
     expect(within(reportingGroup!).getByText('Erin External')).toBeInTheDocument()
     expect(within(unassignedGroup!).getByText('Uma Unassigned')).toBeInTheDocument()
+    expect(within(unassignedGroup!).getByText('No reporting line: no manager is assigned in Remote.')).toBeInTheDocument()
     expect(
       within(unassignedGroup!).getByText('No manager assigned'),
     ).toBeInTheDocument()
@@ -239,6 +240,8 @@ describe('OrgChart', () => {
     expect(within(group).getByText('Riley Report')).toBeInTheDocument()
     expect(within(group).getByText('2 employees')).toBeInTheDocument()
     expect(within(group).getByText('Manager archived')).toBeInTheDocument()
+    expect(within(group).getByText('No reporting line: manager Morgan Archived is archived.')).toBeInTheDocument()
+    expect(within(group).getByText('Reports to Avery Active')).toBeInTheDocument()
     const team = within(group).getByText('Avery Active').closest('details')!
     expect(within(team).getByText('Riley Report')).toBeInTheDocument()
   })

@@ -101,7 +101,13 @@ function PersonCardContents({
             {person.department?.name ?? 'Department unavailable'}
           </span>
         </span>
-        {person.manager?.name && (
+        {unassigned ? (
+          <span className="manager-line">
+            {person.manager_archived
+              ? `No reporting line: ${person.manager?.name ? `manager ${person.manager.name} is archived` : 'the assigned manager is archived'}.`
+              : 'No reporting line: no manager is assigned in Remote.'}
+          </span>
+        ) : person.manager?.name && (
           <span className="manager-line">
             {person.manager_archived ? 'Archived manager: ' : 'Reports to '}{person.manager.name}
           </span>
