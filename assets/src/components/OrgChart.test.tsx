@@ -323,7 +323,8 @@ describe('OrgChart', () => {
     render(<OrgChart chart={chart([employee])} {...actions()} />)
 
     expect(screen.getByText('Pending review')).toBeInTheDocument()
-    expect(screen.getByText('Global payroll employee')).toBeInTheDocument()
+    expect(screen.getByText('Employee')).toBeInTheDocument()
+    expect(screen.queryByText('Global payroll employee')).not.toBeInTheDocument()
     expect(screen.getByText('Global payroll')).toBeInTheDocument()
     expect(employee.employment_type).toBe('global_payroll_employee')
   })

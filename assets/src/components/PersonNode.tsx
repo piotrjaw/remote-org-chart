@@ -123,13 +123,19 @@ function PersonCardContents({
             </span>
           )}
           {person.status && <span className="employment-status">{chipLabel(person.status)}</span>}
-          {person.employment_type && <span>{chipLabel(person.employment_type)}</span>}
+          {person.employment_type && <span>{employmentTypeLabel(person.employment_type)}</span>}
           {person.employment_model && <span>{chipLabel(person.employment_model)}</span>}
         </span>
         <span className="report-count">{reportLabel}</span>
       </span>
     </>
   )
+}
+
+function employmentTypeLabel(value: string): string {
+  return value.trim().toLowerCase() === 'global_payroll_employee'
+    ? 'Employee'
+    : chipLabel(value)
 }
 
 function chipLabel(value: string): string {
