@@ -184,6 +184,32 @@ Webhook invalidation has deliberate limits:
   use a shared cache or invalidation bus plus distributed refresh locking before
   scaling horizontally.
 
+### Why the hierarchy is not fetched level by level
+
+Remote cannot currently return only the direct reports of one manager. The
+[`/v1/employments/bulk`](https://developer.remote.com/reference/get_v1_employments_bulk)
+endpoint supports company, cursor, and page-size parameters, but no manager-ID filter.
+The lighter `/v1/employments` list is smaller, but an aggregate sandbox validation found
+that its first 100 records contained no `manager` or `manager_employment_id` fields.
+Without every employment's manager ID, the application cannot determine roots, direct
+reports, external managers, or cycles reliably.
+
+Fetching the first layer and then requesting every employee individually would therefore
+be an N+1 request pattern. Remote's
+[workforce synchronization guidance](https://developer.remote.com/docs/sync-workforce-data)
+also recommends seeding from a paginated list and explicitly discourages looping over
+individual employments. At the observed sandbox size of 191 employments, the current
+100-record bulk page size builds the complete graph with two employment requests after
+the identity lookup.
+
+If the organization grows enough to justify more infrastructure, the preferred design is
+to persist a flat employment projection plus a `manager_id -> child_ids` index. A webhook
+batch would fetch and patch only the changed employment IDs when the batch is small, while
+large or ambiguous batches, process restarts, and periodic reconciliation would trigger a
+complete bulk refresh. The browser could then load child layers from that local index.
+This would reduce browser payload and small-update work; it would not remove the initial
+full Remote seed needed to establish every relationship.
+
 ## Hierarchy assumptions and edge cases
 
 `manager_employment_id` is authoritative. Manager names are display-only. The mapper
