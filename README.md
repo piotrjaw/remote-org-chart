@@ -11,6 +11,9 @@ no CORS setup is needed.
 
 ## Architecture
 
+See [Architecture and design decisions](docs/architecture.md) for the rationale behind
+these boundaries and the single-instance design.
+
 ```text
 Browser (React SPA)
   │ encrypted cookie + CSRF
