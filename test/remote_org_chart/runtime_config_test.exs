@@ -9,6 +9,7 @@ defmodule RemoteOrgChart.RuntimeConfigTest do
     "APP_USERNAME" => "reviewer",
     "APP_PASSWORD" => "deployment-password",
     "REMOTE_API_TOKEN" => "deployment-token",
+    "REMOTE_WEBHOOK_SIGNING_KEY" => "deployment-webhook-signing-key",
     "REMOTE_DATA_SOURCE" => "api"
   }
 
@@ -22,6 +23,7 @@ defmodule RemoteOrgChart.RuntimeConfigTest do
                password: "deployment-password"
              },
              remote_api_token: "deployment-token",
+             remote_webhook_signing_key: "deployment-webhook-signing-key",
              remote_cache_ttl_ms: 300_000
            } = production!(@valid_env)
 
@@ -43,6 +45,7 @@ defmodule RemoteOrgChart.RuntimeConfigTest do
       "APP_USERNAME",
       "APP_PASSWORD",
       "REMOTE_API_TOKEN",
+      "REMOTE_WEBHOOK_SIGNING_KEY",
       "REMOTE_DATA_SOURCE"
     ]
 

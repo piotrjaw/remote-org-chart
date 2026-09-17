@@ -9,6 +9,7 @@ if config_env() == :prod do
     app_credentials: runtime.app_credentials,
     remote_source: RemoteOrgChart.Remote.Client,
     remote_api_token: runtime.remote_api_token,
+    remote_webhook_signing_key: runtime.remote_webhook_signing_key,
     remote_api_base_url: runtime.remote_api_base_url,
     remote_cache_ttl_ms: runtime.remote_cache_ttl_ms
 
@@ -29,6 +30,7 @@ else
 
   if config_env() != :test do
     config :remote_org_chart,
+      remote_webhook_signing_key: System.get_env("REMOTE_WEBHOOK_SIGNING_KEY"),
       app_credentials: %{
         username: RuntimeConfig.required!(&System.fetch_env!/1, "APP_USERNAME") |> String.trim(),
         password: RuntimeConfig.required!(&System.fetch_env!/1, "APP_PASSWORD")

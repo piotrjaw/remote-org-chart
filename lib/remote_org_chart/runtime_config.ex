@@ -27,6 +27,7 @@ defmodule RemoteOrgChart.RuntimeConfig do
         password: required!(fetch_env!, "APP_PASSWORD")
       },
       remote_api_token: required!(fetch_env!, "REMOTE_API_TOKEN"),
+      remote_webhook_signing_key: required!(fetch_env!, "REMOTE_WEBHOOK_SIGNING_KEY"),
       remote_api_base_url:
         optional_nonblank(
           get_env.("REMOTE_API_BASE_URL"),

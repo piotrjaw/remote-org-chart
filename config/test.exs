@@ -4,6 +4,7 @@ config :remote_org_chart,
   remote_source: RemoteOrgChart.Remote.FixtureClient,
   remote_fixture_directory: Path.expand("../fixtures/remote", __DIR__),
   app_credentials: %{username: "reviewer", password: "test-password"},
+  remote_webhook_signing_key: "test-webhook-signing-key",
   remote_cache_module: RemoteOrgChartWeb.OrgChartControllerTest.CacheStub,
   spa_index_path: Path.expand("../assets/index.html", __DIR__)
 

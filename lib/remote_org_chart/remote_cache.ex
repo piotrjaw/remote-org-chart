@@ -26,13 +26,20 @@ defmodule RemoteOrgChart.RemoteCache do
   @spec refresh(GenServer.server()) :: {:ok, Result.t()} | {:error, Error.t()}
   def refresh(server \\ __MODULE__), do: GenServer.call(server, :refresh)
 
+  @spec invalidate(GenServer.server()) :: :ok
+  def invalidate(server \\ __MODULE__), do: GenServer.cast(server, :invalidate)
+
   @impl true
   def init(options) do
     {:ok,
      %{
        value: nil,
        fetched_at_ms: nil,
+       refresh_after_ms: nil,
+       retry_after_ms: nil,
        ttl_ms: Keyword.fetch!(options, :ttl_ms),
+       invalidation_debounce_ms: Keyword.get(options, :invalidation_debounce_ms, 2_000),
+       retry_cooldown_ms: Keyword.get(options, :retry_cooldown_ms, 30_000),
        fetcher: Keyword.fetch!(options, :fetcher),
        now: Keyword.get(options, :now, &current_time/0)
      }}
@@ -42,10 +49,15 @@ defmodule RemoteOrgChart.RemoteCache do
   def handle_call(:get, _from, state) do
     current_time = state.now.()
 
-    if fresh?(state, current_time.monotonic_ms) do
-      {:reply, {:ok, %{state.value | stale: false}}, state}
-    else
-      fetch(state, current_time)
+    cond do
+      retrying?(state, current_time.monotonic_ms) ->
+        {:reply, {:ok, %{state.value | stale: true}}, state}
+
+      fresh?(state, current_time.monotonic_ms) ->
+        {:reply, {:ok, %{state.value | stale: false}}, state}
+
+      true ->
+        fetch(state, current_time)
     end
   end
 
@@ -53,11 +65,33 @@ defmodule RemoteOrgChart.RemoteCache do
     fetch(state, state.now.())
   end
 
+  @impl true
+  def handle_cast(:invalidate, state) do
+    refresh_after_ms = state.now.().monotonic_ms + state.invalidation_debounce_ms
+    {:noreply, %{state | refresh_after_ms: refresh_after_ms}}
+  end
+
   defp fresh?(%{value: nil}, _current_ms), do: false
 
-  defp fresh?(state, current_ms) do
+  defp fresh?(%{refresh_after_ms: refresh_after_ms} = state, current_ms)
+       when is_integer(refresh_after_ms) do
+    current_ms < refresh_after_ms and ttl_fresh?(state, current_ms)
+  end
+
+  defp fresh?(state, current_ms), do: ttl_fresh?(state, current_ms)
+
+  defp ttl_fresh?(state, current_ms) do
     current_ms - state.fetched_at_ms < state.ttl_ms
   end
+
+  defp retrying?(%{value: nil}, _current_ms), do: false
+
+  defp retrying?(%{retry_after_ms: retry_after_ms}, current_ms)
+       when is_integer(retry_after_ms) do
+    current_ms < retry_after_ms
+  end
+
+  defp retrying?(_state, _current_ms), do: false
 
   defp fetch(state, current_time) do
     case state.fetcher.() do
@@ -67,13 +101,16 @@ defmodule RemoteOrgChart.RemoteCache do
         new_state = %{
           state
           | value: result,
-            fetched_at_ms: current_time.monotonic_ms
+            fetched_at_ms: current_time.monotonic_ms,
+            refresh_after_ms: nil,
+            retry_after_ms: nil
         }
 
         {:reply, {:ok, result}, new_state}
 
       {:error, %Error{kind: :temporary}} when not is_nil(state.value) ->
-        {:reply, {:ok, %{state.value | stale: true}}, state}
+        retry_after_ms = current_time.monotonic_ms + state.retry_cooldown_ms
+        {:reply, {:ok, %{state.value | stale: true}}, %{state | retry_after_ms: retry_after_ms}}
 
       {:error, %Error{} = error} ->
         {:reply, {:error, error}, state}

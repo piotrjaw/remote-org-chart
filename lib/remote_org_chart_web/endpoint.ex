@@ -32,6 +32,7 @@ defmodule RemoteOrgChartWeb.Endpoint do
 
   plug Plug.RequestId, assign_as: :request_id
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug RemoteOrgChartWeb.RemoteWebhookAuthentication
 
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],

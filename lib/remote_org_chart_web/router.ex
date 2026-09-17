@@ -25,6 +25,7 @@ defmodule RemoteOrgChartWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :show
+    post "/webhooks/remote", RemoteWebhookController, :create
   end
 
   scope "/api", RemoteOrgChartWeb do

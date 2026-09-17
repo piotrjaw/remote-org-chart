@@ -4,18 +4,7 @@ defmodule RemoteOrgChartWeb.OrgChartControllerTest do
   alias RemoteOrgChart.Hierarchy.{Chart, Node}
   alias RemoteOrgChart.Remote.{Company, Error}
   alias RemoteOrgChart.RemoteCache.Result
-
-  defmodule CacheStub do
-    def get, do: result(:get)
-    def refresh, do: result(:refresh)
-
-    defp result(operation) do
-      case Process.get({__MODULE__, operation}) do
-        :raise -> raise "private cache failure"
-        result -> result
-      end
-    end
-  end
+  alias RemoteOrgChartWeb.OrgChartControllerTest.CacheStub
 
   test "returns the normalized recursive chart with cache metadata", %{conn: conn} do
     child = node("child", "Child", [])

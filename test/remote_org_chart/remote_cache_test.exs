@@ -71,6 +71,110 @@ defmodule RemoteOrgChart.RemoteCacheTest do
     assert hd(refreshed.chart.roots).id == "root-version-3"
   end
 
+  test "coalesces invalidation before refetching on the next read" do
+    responses = start_agent(fn -> [chart("version-1"), chart("version-2")] end)
+    clock = start_agent(fn -> now(0) end)
+
+    fetcher = fn ->
+      Agent.get_and_update(responses, fn [next | remaining] ->
+        {{:ok, next}, remaining}
+      end)
+    end
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         fetcher: fetcher,
+         now: fn -> Agent.get(clock, & &1) end,
+         ttl_ms: 5_000,
+         invalidation_debounce_ms: 2_000}
+      )
+
+    assert {:ok, initial} = RemoteCache.get(cache)
+    assert hd(initial.chart.roots).id == "root-version-1"
+
+    assert :ok = RemoteCache.invalidate(cache)
+    :sys.get_state(cache)
+    Agent.update(clock, fn _current -> now(1_000) end)
+    assert :ok = RemoteCache.invalidate(cache)
+    :sys.get_state(cache)
+
+    Agent.update(clock, fn _current -> now(2_999) end)
+    assert {:ok, debounced} = RemoteCache.get(cache)
+    assert hd(debounced.chart.roots).id == "root-version-1"
+
+    Agent.update(clock, fn _current -> now(3_000) end)
+    assert {:ok, refreshed} = RemoteCache.get(cache)
+    assert hd(refreshed.chart.roots).id == "root-version-2"
+  end
+
+  test "TTL expiry still refreshes during an invalidation burst" do
+    responses = start_agent(fn -> [chart("version-1"), chart("version-2")] end)
+    clock = start_agent(fn -> now(0) end)
+
+    fetcher = fn ->
+      Agent.get_and_update(responses, fn [next | remaining] ->
+        {{:ok, next}, remaining}
+      end)
+    end
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         fetcher: fetcher,
+         now: fn -> Agent.get(clock, & &1) end,
+         ttl_ms: 1_000,
+         invalidation_debounce_ms: 2_000}
+      )
+
+    assert {:ok, initial} = RemoteCache.get(cache)
+    assert hd(initial.chart.roots).id == "root-version-1"
+
+    Agent.update(clock, fn _current -> now(900) end)
+    assert :ok = RemoteCache.invalidate(cache)
+    Agent.update(clock, fn _current -> now(1_000) end)
+
+    assert {:ok, refreshed} = RemoteCache.get(cache)
+    assert hd(refreshed.chart.roots).id == "root-version-2"
+  end
+
+  test "invalidation does not wait behind an in-progress refresh" do
+    test_process = self()
+    clock = start_agent(fn -> now(0) end)
+    fetch_count = start_agent(fn -> 0 end)
+
+    fetcher = fn ->
+      case Agent.get_and_update(fetch_count, fn count -> {count, count + 1} end) do
+        0 ->
+          {:ok, chart("version-1")}
+
+        1 ->
+          send(test_process, :refresh_started)
+          receive do: (:continue_refresh -> {:ok, chart("version-2")})
+      end
+    end
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil, fetcher: fetcher, now: fn -> Agent.get(clock, & &1) end, ttl_ms: 1_000}
+      )
+
+    assert {:ok, _initial} = RemoteCache.get(cache)
+    Agent.update(clock, fn _current -> now(1_000) end)
+
+    refresh = Task.async(fn -> RemoteCache.get(cache) end)
+    assert_receive :refresh_started
+
+    invalidation = Task.async(fn -> RemoteCache.invalidate(cache) end)
+    assert {:ok, :ok} = Task.yield(invalidation, 100)
+
+    send(cache, :continue_refresh)
+    assert {:ok, {:ok, _refreshed}} = Task.yield(refresh, 1_000)
+  end
+
   test "returns an existing snapshot as stale for a temporary fetch failure" do
     responses =
       start_agent(fn ->
@@ -101,6 +205,51 @@ defmodule RemoteOrgChart.RemoteCacheTest do
     assert stale.chart == fresh.chart
     assert stale.fetched_at == fresh.fetched_at
     assert stale.stale
+  end
+
+  test "backs off invalidated refreshes after a temporary failure" do
+    responses =
+      start_agent(fn ->
+        [
+          {:ok, chart("version-1")},
+          {:error, Error.temporary(:http)},
+          {:ok, chart("version-2")}
+        ]
+      end)
+
+    clock = start_agent(fn -> now(0) end)
+
+    fetcher = fn ->
+      Agent.get_and_update(responses, fn [next | remaining] ->
+        {next, remaining}
+      end)
+    end
+
+    cache =
+      start_supervised!(
+        {RemoteCache,
+         name: nil,
+         fetcher: fetcher,
+         now: fn -> Agent.get(clock, & &1) end,
+         ttl_ms: 300_000,
+         invalidation_debounce_ms: 0,
+         retry_cooldown_ms: 30_000}
+      )
+
+    assert {:ok, initial} = RemoteCache.get(cache)
+    refute initial.stale
+    assert :ok = RemoteCache.invalidate(cache)
+
+    assert {:ok, failed_refresh} = RemoteCache.get(cache)
+    assert failed_refresh.stale
+    assert {:ok, backed_off} = RemoteCache.get(cache)
+    assert backed_off.stale
+    assert hd(backed_off.chart.roots).id == "root-version-1"
+
+    Agent.update(clock, fn _current -> now(30_000) end)
+    assert {:ok, recovered} = RemoteCache.get(cache)
+    refute recovered.stale
+    assert hd(recovered.chart.roots).id == "root-version-2"
   end
 
   test "never falls back to stale data for authentication, invalid, or internal failures" do

@@ -110,6 +110,7 @@ Phoenix digests. Generated assets and release directories are ignored by Git.
 | `APP_PASSWORD` | required | required | Reviewer login password |
 | `REMOTE_DATA_SOURCE` | `fixture` or `api` | must be `api` | Explicit data provider |
 | `REMOTE_API_TOKEN` | required in API mode | required | Server-only Remote bearer token |
+| `REMOTE_WEBHOOK_SIGNING_KEY` | optional | required | Signing key returned when the Remote webhook callback is created |
 | `REMOTE_API_BASE_URL` | optional | optional | `https://gateway.remote-sandbox.com` |
 | `REMOTE_CACHE_TTL_SECONDS` | optional | optional | `300`; non-negative integer |
 | `SECRET_KEY_BASE` | from `dev.exs` | required, at least 64 bytes | Encrypts/signs cookies |
@@ -139,17 +140,49 @@ server-side limiter before using this credential model for a higher-risk public 
 - The first chart request fetches every Remote cursor page and atomically stores one
   normalized hierarchy.
 - Requests within `REMOTE_CACHE_TTL_SECONDS` use that snapshot.
+- A valid Remote employment webhook marks the snapshot for refresh. Webhooks arriving
+  close together are coalesced for two seconds, then the next chart request refetches
+  the complete snapshot.
 - The Refresh button bypasses freshness and replaces the snapshot only after a complete
   successful fetch.
 - Concurrent calls are serialized by the GenServer, preventing duplicate upstream
   refreshes on one instance.
 - Timeouts, rate limits, and Remote `5xx` errors may return an existing snapshot marked
-  stale. Authentication and invalid-schema errors never use stale data.
+  stale. After such a failure, ordinary reads wait 30 seconds before retrying Remote;
+  the Refresh button can still force an immediate attempt. Authentication and
+  invalid-schema errors never use stale data.
 - Browser responses are always `Cache-Control: no-store`.
 
-The cache disappears on restart and is not shared across instances. Keep the Render
-service at one instance for this version; use a distributed cache or coordinated fetch
-process before scaling horizontally.
+`POST /api/webhooks/remote` is public so Remote can reach it, but it accepts an event
+only when `X-Remote-Signature` matches the HMAC-SHA256 of the exact raw request body,
+`":"`, and `X-Remote-Timestamp` under `REMOTE_WEBHOOK_SIGNING_KEY`. Invalid or missing
+signatures return `401` and do not invalidate the cache. Remote does not provide one
+catch-all employment-change event, so configure the callback for `employment.updated`,
+`employment.details.updated`, `employment.personal_information.updated`,
+`employment.administrative_details.updated`, `employment.status.updated`, and
+`employment.work_email.updated`; see Remote's
+[webhook setup](https://developer.remote.com/docs/working-with-webhooks) and
+[signature verification](https://developer.remote.com/docs/verifying-webhooks).
+
+Webhook invalidation has deliberate limits:
+
+- Delivery is eventually consistent. Events are debounced for two seconds, and the
+  refresh happens on the next chart read rather than in the webhook request.
+- The callback is a hint, not the source of truth. A missed, delayed, or unsupported
+  event can leave the snapshot current only when the five-minute TTL expires or a
+  reviewer clicks Refresh. Remote retries connection, DNS, TLS, and timeout failures,
+  but treats an HTTP response as delivered even when it is `4xx` or `5xx`.
+- A signed event triggers a complete paginated snapshot fetch; it does not patch one
+  employee in place.
+- The timestamp participates in the signature but is not rejected for age. This lets
+  delayed Remote retries invalidate safely, but a captured authentic request can be
+  replayed to cause another invalidation. It cannot read or alter chart data.
+- The receiver reads at most 1 MB per delivery. Remote employment webhook payloads are
+  expected to be much smaller; an oversized delivery is rejected.
+- Cache state and invalidations live only in one BEAM process. They disappear on
+  restart and are not shared across instances. Keep the Render service at one instance;
+  use a shared cache or invalidation bus plus distributed refresh locking before
+  scaling horizontally.
 
 ## Hierarchy assumptions and edge cases
 
@@ -211,6 +244,7 @@ docker run --rm \
   -e APP_PASSWORD=local-smoke-password \
   -e REMOTE_DATA_SOURCE=api \
   -e REMOTE_API_TOKEN=non-secret-smoke-token \
+  -e REMOTE_WEBHOOK_SIGNING_KEY=non-secret-smoke-signing-key \
   -e REMOTE_API_BASE_URL=http://host.docker.internal:4999 \
   remote-org-chart:local
 ```
@@ -228,10 +262,13 @@ healthy. The Blueprint starts on the Free plan and prompts for all secret values
 
 1. Push the repository to GitHub or GitLab.
 2. In Render, choose **New → Blueprint** and connect the repository.
-3. Supply `SECRET_KEY_BASE`, `APP_USERNAME`, `APP_PASSWORD`, and `REMOTE_API_TOKEN`
-   when prompted. Render supplies the assigned hostname automatically.
-4. Create the service and wait for `/api/health` to pass.
-5. Open the public HTTPS URL, sign in, load, refresh, and sign out.
+3. Supply `SECRET_KEY_BASE`, `APP_USERNAME`, `APP_PASSWORD`, `REMOTE_API_TOKEN`, and
+   `REMOTE_WEBHOOK_SIGNING_KEY` when prompted. The last value is the signing key Remote
+   returns when you register the public `/api/webhooks/remote` callback. Render supplies
+   the assigned hostname automatically.
+4. Subscribe that callback to the six `employment.*` events listed in the cache policy.
+5. Create the service and wait for `/api/health` to pass.
+6. Open the public HTTPS URL, sign in, load, refresh, and sign out.
 
 The Free web-service plan costs $0 but spins down after 15 minutes without inbound
 traffic; the next request can take about a minute. For an interview URL that must stay
@@ -262,9 +299,9 @@ validation.
 ## Deliberate limitations and production hardening
 
 This implementation has no user database, password reset, roles, login rate limiter,
-persistent/distributed cache, background synchronization, webhooks, editing, or
-multi-company selection. It is designed for one configured company and one application
-instance.
+persistent/distributed cache, background synchronization, editing, or multi-company
+selection. Its webhook invalidation has the delivery and single-instance constraints
+listed above. It is designed for one configured company and one application instance.
 
 For a longer-lived product, add rate limiting and audit events, a real identity provider,
 secret rotation procedures, observability/alerts, a shared cache with refresh locking,
