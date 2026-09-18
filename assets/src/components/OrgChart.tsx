@@ -85,8 +85,17 @@ function OrgChart({
         <h2 id="chart-heading">Organization groups</h2>
         {visibleRoots.length === 0 ? (
           <div className="empty-state">
-            <p>No employees were returned.</p>
-            <p>Refresh the data or confirm the configured company has employments.</p>
+            {chart.roots.length > 0 ? (
+              <>
+                <p>All employees are archived and currently hidden.</p>
+                <p>Enable “Show archived employees” to view them.</p>
+              </>
+            ) : (
+              <>
+                <p>No employees were returned.</p>
+                <p>Refresh the data or confirm the configured company has employments.</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="organization-groups">

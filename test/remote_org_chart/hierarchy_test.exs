@@ -269,6 +269,42 @@ defmodule RemoteOrgChart.HierarchyTest do
     end)
   end
 
+  test "repairs separate cycles once, excluding incoming branches from cycle warnings" do
+    people = [
+      employment("a-branch", "b"),
+      employment("another-branch", "b"),
+      employment("b", "c"),
+      employment("c", "b"),
+      employment("d", "e"),
+      employment("e", "d")
+    ]
+
+    chart = build_people(people)
+    assert Enum.map(chart.roots, & &1.id) == ["b", "d"]
+
+    assert chart.warnings == [
+             %{code: "cycle_detected", employment_ids: ["b", "c"], broken_at: "b"},
+             %{code: "cycle_detected", employment_ids: ["d", "e"], broken_at: "d"}
+           ]
+
+    assert Enum.map(hd(chart.roots).reports, & &1.id) == ["a-branch", "another-branch", "c"]
+    assert length(flatten(chart.roots)) == 6
+    assert build_people(Enum.reverse(people)) == chart
+  end
+
+  test "preserves a deep acyclic reporting chain" do
+    people =
+      for id <- 1..1000,
+          do: employment(Integer.to_string(id), if(id < 1000, do: Integer.to_string(id + 1)))
+
+    chart = build_people(people)
+    assert chart.employee_count == 1000
+    assert chart.root_count == 1
+    assert hd(chart.roots).id == "1000"
+    assert maximum_depth(chart.roots) == 1000
+    assert chart.warnings == []
+  end
+
   defp flatten(nodes) do
     Enum.flat_map(nodes, fn node -> [node | flatten(node.reports)] end)
   end

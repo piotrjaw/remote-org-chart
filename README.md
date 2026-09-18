@@ -92,6 +92,11 @@ Run Vite as shown above. Do not put live values in `.env.example` or commit a lo
 
 ## Test and build
 
+The [CI workflow](.github/workflows/ci.yml) runs backend formatting, compilation,
+and tests, plus frontend tests, lint, and a production frontend build on pushes and
+pull requests. It uses synthetic fixtures and needs no application secrets or Remote
+credentials. Docker/release smoke tests remain separate checks described below.
+
 ```bash
 mix format --check-formatted
 mix test

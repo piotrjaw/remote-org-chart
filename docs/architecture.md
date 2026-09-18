@@ -36,6 +36,8 @@ Relationship repair keeps usable employee records visible when manager data is
 incomplete or inconsistent. Duplicate IDs keep the first record; self-references and
 unresolved relationships become roots with warnings. Cycles are broken at a
 deterministically chosen ID. Names are display data, not relationship identifiers.
+Cycle detection remembers completed paths so shared ancestor chains are traversed once;
+sorted cycle IDs keep repair choices and warning order stable across input orderings.
 
 The backend detaches employees from archived managers while preserving their original
 manager summary and marking the reason. Their own teams remain intact. This rule is

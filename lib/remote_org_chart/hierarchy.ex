@@ -101,15 +101,18 @@ defmodule RemoteOrgChart.Hierarchy do
   defp classify_manager(_person, _people_by_id), do: :root
 
   defp break_cycles(parent_by_child) do
-    cycles =
+    # Finished paths never need to be walked again, even when many reports share
+    # an ancestor. Each walk prepends IDs rather than copying its growing path.
+    {_visited, cycles} =
       parent_by_child
       |> Map.keys()
       |> Enum.sort()
-      |> Enum.map(&cycle_from(&1, parent_by_child))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&Enum.sort/1)
-      |> Enum.uniq()
-      |> Enum.sort()
+      |> Enum.reduce({MapSet.new(), []}, fn id, {visited, cycles} ->
+        {visited, cycle} = walk_parent_edges(id, parent_by_child, visited, [], MapSet.new())
+        {visited, if(cycle == [], do: cycles, else: [Enum.sort(cycle) | cycles])}
+      end)
+
+    cycles = Enum.sort(cycles)
 
     Enum.reduce(cycles, {parent_by_child, []}, fn cycle_ids, {edges, warnings} ->
       broken_at = Enum.min(cycle_ids)
@@ -124,25 +127,23 @@ defmodule RemoteOrgChart.Hierarchy do
     end)
   end
 
-  defp cycle_from(start_id, parent_by_child) do
-    walk_parent_edges(start_id, parent_by_child, [], %{})
-  end
-
-  defp walk_parent_edges(id, parent_by_child, path, positions) do
+  defp walk_parent_edges(id, parent_by_child, visited, path, current_path) do
     cond do
-      Map.has_key?(positions, id) ->
-        Enum.drop(path, Map.fetch!(positions, id))
+      MapSet.member?(current_path, id) ->
+        cycle = [id | Enum.take_while(path, &(&1 != id))]
+        {MapSet.union(visited, current_path), cycle}
 
-      Map.has_key?(parent_by_child, id) ->
+      MapSet.member?(visited, id) or not Map.has_key?(parent_by_child, id) ->
+        {MapSet.union(visited, current_path), []}
+
+      true ->
         walk_parent_edges(
           Map.fetch!(parent_by_child, id),
           parent_by_child,
-          path ++ [id],
-          Map.put(positions, id, length(path))
+          visited,
+          [id | path],
+          MapSet.put(current_path, id)
         )
-
-      true ->
-        nil
     end
   end
 

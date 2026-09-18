@@ -361,6 +361,17 @@ describe('OrgChart', () => {
     expect(screen.getByText(/future_warning/i)).toBeInTheDocument()
   })
 
+  it('explains hidden archived employees and lets the user reveal them', async () => {
+    const user = userEvent.setup()
+    render(<OrgChart chart={chart([person('archived', 'Archived Person', [], { status: 'archived' })])} {...actions()} />)
+
+    expect(screen.getByText('All employees are archived and currently hidden.')).toBeInTheDocument()
+    expect(screen.queryByText('No employees were returned.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'Show archived employees' }))
+    expect(screen.getByText('Archived Person')).toBeInTheDocument()
+    expect(screen.queryByText('All employees are archived and currently hidden.')).not.toBeInTheDocument()
+  })
+
   it('shows an explicit empty state', () => {
     render(<OrgChart chart={chart([])} {...actions()} />)
 
