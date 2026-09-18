@@ -13,12 +13,7 @@ defmodule RemoteOrgChartWeb.Endpoint do
     secure: Application.compile_env(:remote_org_chart, :secure_cookies, false)
   ]
 
-  # socket "/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]]
-
-  # Serve at "/" the static files from "priv/static" directory.
-  #
-  # You should set gzip to true if you are running phx.digest
-  # when deploying your static files in production.
+  # Apply security headers to static assets as well as controller responses.
   plug RemoteOrgChartWeb.Plugs.SecurityHeaders
 
   plug Plug.Static,
@@ -27,8 +22,6 @@ defmodule RemoteOrgChartWeb.Endpoint do
     gzip: Application.compile_env(:remote_org_chart, :gzip_static, false),
     only: RemoteOrgChartWeb.static_paths()
 
-  # Code reloading can be explicitly enabled under the
-  # :code_reloader configuration of your endpoint.
   if code_reloading? do
     plug Phoenix.CodeReloader
   end

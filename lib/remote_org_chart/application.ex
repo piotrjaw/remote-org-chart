@@ -1,6 +1,4 @@
 defmodule RemoteOrgChart.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
   @moduledoc false
 
   use Application
@@ -8,31 +6,22 @@ defmodule RemoteOrgChart.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Start the Telemetry supervisor
       RemoteOrgChartWeb.Telemetry,
       {RemoteOrgChart.SecurityState,
        Application.get_env(:remote_org_chart, :security_state_options, [])},
-      # Start the PubSub system
       {Phoenix.PubSub, name: RemoteOrgChart.PubSub},
       {Task.Supervisor, name: RemoteOrgChart.FetchSupervisor},
       # Cache one complete, normalized organization chart in memory.
       {RemoteOrgChart.RemoteCache,
        fetcher: &RemoteOrgChart.Remote.fetch_chart/0,
        ttl_ms: Application.fetch_env!(:remote_org_chart, :remote_cache_ttl_ms)},
-      # Start the Endpoint (http/https)
       RemoteOrgChartWeb.Endpoint
-      # Start a worker by calling: RemoteOrgChart.Worker.start_link(arg)
-      # {RemoteOrgChart.Worker, arg}
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: RemoteOrgChart.Supervisor]
     Supervisor.start_link(children, opts)
   end
 
-  # Tell Phoenix to update the endpoint configuration
-  # whenever the application is updated.
   @impl true
   def config_change(changed, _new, removed) do
     RemoteOrgChartWeb.Endpoint.config_change(changed, removed)
