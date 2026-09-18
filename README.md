@@ -95,7 +95,9 @@ Run Vite as shown above. Do not put live values in `.env.example` or commit a lo
 The [CI workflow](.github/workflows/ci.yml) runs backend formatting, compilation,
 and tests, plus frontend tests, lint, and a production frontend build on pushes and
 pull requests. It uses synthetic fixtures and needs no application secrets or Remote
-credentials. Docker/release smoke tests remain separate checks described below.
+credentials. Successful pushes to `main` then trigger deployment of that exact commit
+to Render. Pull requests and other branches only run checks. Docker/release smoke tests
+remain separate checks described below.
 
 ```bash
 mix format --check-formatted
@@ -349,7 +351,7 @@ static/API routing; use HTTPS (as Render does) for the Secure login cookie.
 
 ## Deploy to Render
 
-The repository includes a Render Blueprint with one Docker web service, manual deploys,
+The repository includes a Render Blueprint with one Docker web service,
 and `/api/health` as its health check. Render treats any `2xx`/`3xx` health response as
 healthy. The Blueprint starts on the Free plan and prompts for all secret values marked
 `sync: false`.
@@ -363,6 +365,24 @@ healthy. The Blueprint starts on the Free plan and prompts for all secret values
 4. Subscribe that callback to the six `employment.*` events listed in the cache policy.
 5. Create the service and wait for `/api/health` to pass.
 6. Open the public HTTPS URL, sign in, load, refresh, and sign out.
+
+### Automatic deployment from GitHub
+
+In the Render service's **Settings → Deploy Hook**, copy the secret URL and save it as
+the GitHub repository Actions secret `RENDER_DEPLOY_HOOK_URL`. Never commit this URL.
+The `deploy` job in [CI](.github/workflows/ci.yml) runs only after both test jobs pass
+on a push to `main`, and sends the tested commit SHA to the hook. No Render account API
+key or application credentials are required in GitHub.
+
+Keep Render's own auto-deploy setting off (`autoDeployTrigger: off` in the Blueprint)
+so it cannot deploy ahead of CI or duplicate the workflow's deployment. Manual Render
+deploys remain available for recovery.
+
+The GitHub deployment job confirms that Render accepted the request; it does not wait
+for the build or rollout. Check Render's deployment status and `/api/health` to confirm
+the app is live. Cancelling a GitHub run does not cancel a deployment already accepted
+by Render. Requests are not automatically retried because a timeout can leave the
+deployment outcome uncertain. See [Render's deploy hook documentation](https://render.com/docs/deploy-hooks).
 
 The Free web-service plan costs $0 but spins down after 15 minutes without inbound
 traffic; the next request can take about a minute. For an interview URL that must stay

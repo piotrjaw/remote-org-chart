@@ -46,3 +46,27 @@ jobs:
       - run: npm test --prefix assets
       - run: npm run lint --prefix assets
       - run: npm run build --prefix assets
+
+  deploy:
+    name: Trigger Render deployment
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Deploy the tested commit
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::error::Configure the RENDER_DEPLOY_HOOK_URL repository secret."
+            exit 1
+          fi
+          # Do not retry: a timed-out request may already have started a deploy.
+          # Suppress the response and curl diagnostics to keep the secret URL private.
+          if ! curl --silent --fail --max-time 60 --request POST --output /dev/null \
+            "${RENDER_DEPLOY_HOOK_URL}&ref=${GITHUB_SHA}"; then
+            echo "::error::Render deployment could not be confirmed. Check Render before retrying."
+            exit 1
+          fi
+          echo "Render accepted deployment of ${GITHUB_SHA}. Check Render for build and rollout status."
