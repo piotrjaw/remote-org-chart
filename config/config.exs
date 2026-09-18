@@ -26,7 +26,17 @@ config :remote_org_chart, RemoteOrgChartWeb.Endpoint,
 # Configures Elixir's Logger
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  metadata: [
+    :request_id,
+    :remote_duration_ms,
+    :remote_page_count,
+    :remote_employee_count,
+    :remote_warning_count,
+    :remote_error_kind,
+    :remote_operation,
+    :remote_exception,
+    :exception_module
+  ]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

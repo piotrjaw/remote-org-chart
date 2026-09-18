@@ -561,6 +561,60 @@ defmodule RemoteOrgChart.RemoteCacheTest do
     assert hd(result.chart.roots).id == "root-new"
   end
 
+  for kind <- [:authentication, :invalid_response, :internal, :temporary] do
+    test "webhooks cannot restore freshness after a #{kind} failure" do
+      error = %Error{kind: unquote(kind), operation: :http}
+      clock = start_agent(fn -> now(0) end)
+
+      responses =
+        start_agent(fn ->
+          [{:ok, chart("old")}, {:error, error}, {:error, error}, {:ok, chart("recovered")}]
+        end)
+
+      cache =
+        start_supervised!(
+          {RemoteCache,
+           name: nil,
+           ttl_ms: 300_000,
+           now: fn -> Agent.get(clock, & &1) end,
+           fetcher: fn ->
+             Agent.get_and_update(responses, fn [head | tail] -> {head, tail} end)
+           end}
+        )
+
+      assert {:ok, _} = RemoteCache.get(cache)
+      failed = RemoteCache.refresh(cache)
+
+      if unquote(kind == :temporary) do
+        assert {:ok, %{stale: true}} = failed
+      else
+        assert {:error, ^error} = failed
+      end
+
+      Agent.update(clock, fn _ -> now(29_999) end)
+      RemoteCache.invalidate(cache)
+      assert RemoteCache.get(cache) == failed
+      assert RemoteCache.refresh(cache) == failed
+      assert length(Agent.get(responses, & &1)) == 2
+
+      # The webhook debounce overlaps the retry boundary. Retry anyway, and keep
+      # reporting the failure if Remote still has not recovered.
+      Agent.update(clock, fn _ -> now(30_000) end)
+      assert RemoteCache.get(cache) == failed
+      assert length(Agent.get(responses, & &1)) == 1
+
+      Agent.update(clock, fn _ -> now(59_999) end)
+      RemoteCache.invalidate(cache)
+      assert RemoteCache.get(cache) == failed
+      Agent.update(clock, fn _ -> now(60_000) end)
+      assert {:ok, recovered} = RemoteCache.get(cache)
+      refute recovered.stale
+      assert hd(recovered.chart.roots).id == "root-recovered"
+      assert {:ok, ^recovered} = RemoteCache.get(cache)
+      assert Agent.get(responses, & &1) == []
+    end
+  end
+
   defp chart(version) do
     root = %Node{
       id: "root-#{version}",

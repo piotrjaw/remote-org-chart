@@ -57,6 +57,8 @@ TTL expiry, authenticated manual refresh, and verified webhook invalidation can 
 a replacement snapshot. Fetch deadlines and cooldowns bound work; concurrent manual
 refreshes reuse the latest result. Only temporary upstream failures may fall back to
 stale data. Configuration, malformed-response, and internal failures remain errors.
+Failure state takes precedence over webhook debounce: once the retry cooldown expires,
+the next read must fetch again, and only success makes the snapshot fresh.
 
 Cache and security state are bounded to the current single-instance design and are not
 durable. Restarting clears the cache and revokes sessions. Shared storage and distributed

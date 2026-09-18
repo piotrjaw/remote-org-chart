@@ -103,6 +103,10 @@ defmodule RemoteOrgChart.RemoteCache do
 
   defp fresh?(%{value: nil}, _current_ms), do: false
 
+  # A webhook can move the debounce deadline, but only a successful fetch can
+  # restore freshness after an error. The retry cooldown is checked first.
+  defp fresh?(%{last_error: %Error{}}, _current_ms), do: false
+
   defp fresh?(%{refresh_after_ms: refresh_after_ms} = state, current_ms)
        when is_integer(refresh_after_ms) do
     current_ms < refresh_after_ms and ttl_fresh?(state, current_ms)

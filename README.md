@@ -208,6 +208,11 @@ for a larger deployment; do not simply raise the budget to address hostile traff
   after completion. Reads and manual refreshes return the same safe error during that
   window without contacting Remote or serving the old snapshot as a fallback. The next
   eligible request retries, allowing recovery after a configuration or upstream fix.
+- Webhooks cannot restore freshness after any failed fetch or extend its retry
+  cooldown. Once the cooldown ends, the next read retries even if a webhook's
+  two-second debounce is still pending. Only a successful fetch clears the failure:
+  temporary failures keep any fallback marked stale, while other failures keep
+  returning an error.
 - Chart and session API responses are always `Cache-Control: no-store`.
 
 `POST /api/webhooks/remote` is public so Remote can reach it, but it accepts an event
@@ -308,6 +313,14 @@ are discarded or remain server-only.
 Logs may contain counts, timings, response classes, cache status, warning counts, and
 request IDs. They must not contain tokens, raw Remote bodies, names, or email addresses.
 Unexpected API failures return an opaque code plus a request ID for correlation.
+
+Production console logs explicitly allow `request_id`, `remote_duration_ms`,
+`remote_page_count`, `remote_employee_count`, `remote_warning_count`,
+`remote_error_kind`, `remote_operation`, `remote_exception`, and `exception_module`.
+Exception fields contain only module names, never exception messages or response
+bodies. Other metadata is omitted. Development keeps its compact message-only
+format. These logs are diagnostic breadcrumbs, not a metrics or tracing system;
+background fetch logs are not guaranteed to carry the initiating HTTP request ID.
 
 ## Docker smoke test
 
